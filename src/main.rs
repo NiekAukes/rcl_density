@@ -2,14 +2,16 @@
 
 use std::thread;
 
-use crate::math::{Pos3, Vec3};
+use crate::{math::{Pos3, Vec3}, utils::set_perlin_seed};
+
 
 mod density_function;
 pub mod math;
 mod orchestration;
 mod test_server;
 pub mod utils;
-
+pub mod perlin;
+pub mod random;
 fn main() {
     // Launch the test server if --test-server is passed.
     // Usage: cargo run -- --test-server [addr:port]
@@ -33,16 +35,26 @@ fn main() {
 
     let handle = builder
         .spawn(|| {
-            let x = orchestration::orchestration(Vec3 {
+            // Use seed 0 for now; in real usage, this would be the world seed
+            let x = orchestration_seeded(0, Vec3 {
                 x: 1.0,
                 y: 1.0,
                 z: 1.0,
             });
 
-            return x.11;
+            return x.final_density;
         })
         .unwrap();
 
     let x = handle.join().unwrap();
     //println!("Density at (0,0,0): {:?}", x);
+}
+
+/// Initialize the Perlin sampler with the given seed before computing density
+pub fn orchestration_seeded(
+    seed: u32,
+    origin: Vec3,
+) -> orchestration::OrchestrationOutput {
+    set_perlin_seed(seed);
+    orchestration::orchestration(origin)
 }

@@ -1,4 +1,19 @@
 use crate::math::Vec3;
+use std::cell::RefCell;
+use crate::perlin::{PerlinNoiseSampler, create_perlin_noise_sampler, sample_perlin};
+
+// Thread-local storage for the seeded Perlin noise sampler
+thread_local! {
+    static PERLIN_SAMPLER: RefCell<Option<PerlinNoiseSampler>> = RefCell::new(None);
+}
+
+/// Initialize the thread-local Perlin sampler with the given seed.
+/// Must be called before any perlin() calls in this thread.
+pub fn set_perlin_seed(seed: u32) {
+    PERLIN_SAMPLER.with(|sampler| {
+        *sampler.borrow_mut() = Some(create_perlin_noise_sampler(seed));
+    });
+}
 
 // Helper noise / interpolation functions
 pub fn hermite(t: f32, p0: f32, p1: f32, m0: f32, m1: f32) -> f32 {
@@ -118,10 +133,30 @@ fn lerp_f32(t: f32, a: f32, b: f32) -> f32 {
     a + t * (b - a)
 }
 
-/// Classic improved Perlin noise (Minecraft `ImprovedNoise.noise`).
-/// Uses the reference permutation table (no per-instance seed or origin offset).
+/// Uses the seeded PerlinNoiseSampler when available (initialized via set_perlin_seed).
+/// Falls back to reference permutation table if no sampler is set (for backward compatibility).
 /// Returns a value roughly in [-1, 1].
 pub fn perlin(p: Vec3) -> f32 {
+    // Try to use the thread-local seeded sampler
+    let result = PERLIN_SAMPLER.with(|sampler| {
+        if let Some(pns) = sampler.borrow().as_ref() {
+            Some(sample_perlin(pns, p.x as f64, p.y as f64, p.z as f64) as f32)
+        } else {
+            None
+        }
+    });
+
+    if let Some(value) = result {
+        return value;
+    }
+
+    // Fallback to reference implementation if no sampler is set
+    perlin_reference(p)
+}
+
+/// Reference implementation of Perlin noise using Ken Perlin's permutation table
+/// (kept for backward compatibility and fallback).
+fn perlin_reference(p: Vec3) -> f32 {
     let x = p.x;
     let y = p.y;
     let z = p.z;
