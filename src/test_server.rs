@@ -2,6 +2,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 
 use crate::math::{Vec3, Pos3, as_index};
+use crate::perlin::{create_perlin_noise_sampler, sample_perlin};
 use crate::utils;
 
 /// Start a TCP test server on the given address (e.g. "127.0.0.1:9876").
@@ -37,6 +38,7 @@ use crate::utils;
 /// | `abs`               | `x`                                                 | 1 float    |
 /// | `max`               | `a b`                                               | 1 float    |
 /// | `perlin`            | `x y z`                                             | 1 float    |
+/// | `seeded_perlin`     | `seed x y z`                                        | 1 float    |
 /// | `old_blended_noise` | `x y z xz_scale y_scale xz_factor y_factor smear`   | 1 float    |
 /// | `ping`              | (none)                                              | `pong`     |
 ///
@@ -172,6 +174,13 @@ fn dispatch(line: &str) -> String {
             format!("OK {v:.10}")
         }),
 
+        "seeded_perlin" => with_args(args, 4, |a| {
+            let seed = a[0] as u32;
+            let pns = create_perlin_noise_sampler(seed);
+            let v = sample_perlin(&pns, a[1] as f64, a[2] as f64, a[3] as f64) as f32;
+            format!("OK {v:.10}")
+        }),
+
         "old_blended_noise" => with_args(args, 8, |a| {
             let v =
                 utils::old_blended_noise(Vec3::new(a[0], a[1], a[2]), a[3], a[4], a[5], a[6], a[7]);
@@ -179,7 +188,7 @@ fn dispatch(line: &str) -> String {
         }),
 
         "density_point" => with_args(args, 8, |a| {
-            let seed = a[0].to_bits();
+            let seed = a[0] as u32;
             let origin = Vec3::new(a[1], a[2], a[3]);
             let patch_pos = Pos3 {
                 x: a[4] as i32,
@@ -334,6 +343,27 @@ mod tests {
         assert!(resp.starts_with("OK"));
         let val: f32 = resp.strip_prefix("OK ").unwrap().trim().parse().unwrap();
         assert!((val - 3.14).abs() < 1e-4);
+    }
+
+    #[test]
+    fn seeded_perlin_is_finite_and_deterministic() {
+        let resp1 = dispatch("seeded_perlin 42 1.5 2.5 3.5");
+        let resp2 = dispatch("seeded_perlin 42 1.5 2.5 3.5");
+        assert!(resp1.starts_with("OK"));
+        let v1: f32 = resp1.strip_prefix("OK ").unwrap().trim().parse().unwrap();
+        let v2: f32 = resp2.strip_prefix("OK ").unwrap().trim().parse().unwrap();
+        assert!(v1.is_finite(), "seeded_perlin should return a finite value");
+        assert_eq!(v1, v2, "same seed and position should give the same result");
+    }
+
+    #[test]
+    fn seeded_perlin_different_seeds_differ() {
+        let resp1 = dispatch("seeded_perlin 0 1.5 2.5 3.5");
+        let resp2 = dispatch("seeded_perlin 1 1.5 2.5 3.5");
+        assert!(resp1.starts_with("OK") && resp2.starts_with("OK"));
+        let v1: f32 = resp1.strip_prefix("OK ").unwrap().trim().parse().unwrap();
+        let v2: f32 = resp2.strip_prefix("OK ").unwrap().trim().parse().unwrap();
+        assert!((v1 - v2).abs() > 1e-6, "different seeds should produce different values");
     }
 
     #[test]
