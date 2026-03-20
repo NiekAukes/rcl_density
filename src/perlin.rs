@@ -1,17 +1,13 @@
-use crate::random::{CheckedRandom, Random};
+use std::mem::transmute;
 
-
-#[derive(Clone)]
-pub struct PerlinNoiseSampler {
-    pub permutation: [u8; 256],
-    pub origin_x: f64,
-    pub origin_y: f64,
-    pub origin_z: f64,
-}
+use crate::{
+    random::{CheckedRandom, Random},
+    utils::PerlinNoiseSampler,
+    xoroshiro::Xoroshiro128PlusPlusRandom,
+};
 
 // ------------------ Perlin Noise Sampler ------------------
-pub fn create_perlin_noise_sampler(seed: u32) -> PerlinNoiseSampler {
-    let mut rng = CheckedRandom::new(seed as i64);
+pub fn create_perlin_noise_sampler(rng: &mut Xoroshiro128PlusPlusRandom) -> PerlinNoiseSampler {
     let mut p: [u8; 256] = [0; 256];
 
     let origin_x = rng.next_double() * 256.0;
@@ -22,7 +18,7 @@ pub fn create_perlin_noise_sampler(seed: u32) -> PerlinNoiseSampler {
         p[i] = i as u8;
     }
     for i in 0..256 {
-        let j = rng.next_int(256 - i as i32) as usize;
+        let j = rng.next_int_bound(256 - i as i32) as usize;
         let k = p[i];
         p[i] = p[j + i];
         p[j + i] = k;
@@ -36,7 +32,22 @@ pub fn create_perlin_noise_sampler(seed: u32) -> PerlinNoiseSampler {
     }
 }
 
-    
+pub fn raw_perlin_noise_sampler(
+    perm_table: &[i8; 256],
+    origin_x: f64,
+    origin_y: f64,
+    origin_z: f64,
+) -> PerlinNoiseSampler {
+    // raw convert the i8 table to u8, treating the i8 as unsigned
+    let permutation = unsafe { transmute(*perm_table) };
+    PerlinNoiseSampler {
+        permutation,
+        origin_x,
+        origin_y,
+        origin_z,
+    }
+}
+
 // ------------------ Noise Sampling ------------------
 
 pub fn sample_perlin(pns: &PerlinNoiseSampler, mut x: f64, mut y: f64, mut z: f64) -> f64 {
@@ -175,15 +186,12 @@ pub fn map(pns: &PerlinNoiseSampler, input: i32) -> i32 {
 }
 
 #[inline]
-pub fn lerp2(
-    delta_x: f64,
-    delta_y: f64,
-    x0y0: f64,
-    x1y0: f64,
-    x0y1: f64,
-    x1y1: f64,
-) -> f64 {
-    lerp(delta_y, lerp(delta_x, x0y0, x1y0), lerp(delta_x, x0y1, x1y1))
+pub fn lerp2(delta_x: f64, delta_y: f64, x0y0: f64, x1y0: f64, x0y1: f64, x1y1: f64) -> f64 {
+    lerp(
+        delta_y,
+        lerp(delta_x, x0y0, x1y0),
+        lerp(delta_x, x0y1, x1y1),
+    )
 }
 
 #[inline]
@@ -206,7 +214,6 @@ pub fn lerp3(
         lerp2(delta_x, delta_y, x0y0z1, x1y0z1, x0y1z1, x1y1z1),
     )
 }
-
 
 impl PerlinNoiseSampler {
     pub fn sample(&self, x: f64, y: f64, z: f64) -> f64 {

@@ -1,19 +1,19 @@
 #![allow(warnings)]
 
+mod density_function;
 pub mod math;
-pub mod utils;
+mod orchestration;
 pub mod perlin;
 pub mod random;
-mod density_function;
-mod orchestration;
+pub mod utils;
+pub mod xoroshiro;
 
-pub use math::{Vec3, Pos3};
+pub use math::{Pos3, Vec3};
 pub use utils::set_perlin_seed;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }
-
 
 /// Compute a full 16x256x16 density chunk with the given seed and origin.
 /// Returns 13 output arrays (one for each density function output).
@@ -27,7 +27,7 @@ pub fn add(left: u64, right: u64) -> u64 {
 
 /// Sample density at a single point given a seed and origin.
 /// Returns the main final density value (the 12th output, index 11).
-pub fn sample_density_at(seed: u32, origin: Vec3) -> f32 {
+pub fn sample_density_at(seed: i64, origin: Vec3) -> f32 {
     let outputs = orchestration_seeded(seed, origin);
     outputs.continents[0]
 }
@@ -44,10 +44,7 @@ mod tests {
 }
 
 /// Initialize the Perlin sampler with the given seed before computing density
-pub fn orchestration_seeded(
-    seed: u32,
-    origin: Vec3,
-) -> orchestration::OrchestrationOutput {
-    set_perlin_seed(seed);
-    orchestration::orchestration(origin)
+pub fn orchestration_seeded(seed: i64, origin: Vec3) -> orchestration::OrchestrationOutput {
+    let permutation_tables = set_perlin_seed(seed);
+    orchestration::orchestration(origin, permutation_tables)
 }

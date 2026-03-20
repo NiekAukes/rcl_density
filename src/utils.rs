@@ -1,18 +1,38 @@
-use crate::math::Vec3;
+use crate::orchestration::{PermutationTables, make_permutation_tables, orchestration};
+use crate::perlin::{create_perlin_noise_sampler, sample_perlin};
+use crate::random::Random;
+use crate::{
+    math::Vec3,
+    xoroshiro::{Xoroshiro128PlusPlusRandom, create_xoroshiro_seed},
+};
 use std::cell::RefCell;
-use crate::perlin::{PerlinNoiseSampler, create_perlin_noise_sampler, sample_perlin};
 
 // Thread-local storage for the seeded Perlin noise sampler
 thread_local! {
-    static PERLIN_SAMPLER: RefCell<Option<PerlinNoiseSampler>> = RefCell::new(None);
+    static PERLIN_SAMPLER: RefCell<Option<&'static PermutationTables>> = RefCell::new(None);
+    static CURRENT_SEED: RefCell<Option<i64>> = RefCell::new(None);
+}
+
+#[derive(Clone)]
+pub struct PerlinNoiseSampler {
+    pub permutation: [u8; 256],
+    pub origin_x: f64,
+    pub origin_y: f64,
+    pub origin_z: f64,
 }
 
 /// Initialize the thread-local Perlin sampler with the given seed.
 /// Must be called before any perlin() calls in this thread.
-pub fn set_perlin_seed(seed: u32) {
-    PERLIN_SAMPLER.with(|sampler| {
-        *sampler.borrow_mut() = Some(create_perlin_noise_sampler(seed));
-    });
+pub fn set_perlin_seed(seed: i64) -> &'static PermutationTables {
+    if CURRENT_SEED.with(|s| s.borrow().map_or(true, |current| current != seed)) {
+        let perm_tables = make_permutation_tables(seed);
+        // leak the PermutationTables to get a 'static reference (safe because we never modify it after this)
+        let perm_tables_ref: &'static PermutationTables = Box::leak(Box::new(perm_tables));
+
+        PERLIN_SAMPLER.with(|p| *p.borrow_mut() = Some(perm_tables_ref));
+        CURRENT_SEED.with(|s| *s.borrow_mut() = Some(seed));
+    }
+    PERLIN_SAMPLER.with(|p| p.borrow().unwrap())
 }
 
 // Helper noise / interpolation functions
@@ -59,6 +79,28 @@ pub fn make_buffer<const C: usize>() -> Box<[f32; C]> {
     let mut buffer: Box<[f32; C]> =
         unsafe { Box::new(std::mem::MaybeUninit::uninit().assume_init()) };
     buffer
+}
+
+pub fn make_permutation_table(
+    seed: i64,
+    seed_low_1: i64,
+    seed_high_1: i64,
+    iteration_count: i64,
+    seed_low_2: i64,
+    seed_high_2: i64,
+) -> Box<PerlinNoiseSampler> {
+    let mut rngparent =
+        Xoroshiro128PlusPlusRandom::from_seed(&create_xoroshiro_seed(seed)).next_splitter();
+    let mut rng1 = rngparent.split(seed_low_1, seed_high_1);
+    for _ in 0..iteration_count {
+        rng1.next_splitter();
+    }
+
+    let mut rng1_split = rng1.next_splitter();
+
+    let mut rng2 = rng1_split.split(seed_low_2, seed_high_2);
+
+    Box::new(create_perlin_noise_sampler(&mut rng2))
 }
 
 // ---------------------------------------------------------------------------
@@ -136,22 +178,10 @@ fn lerp_f32(t: f32, a: f32, b: f32) -> f32 {
 /// Uses the seeded PerlinNoiseSampler when available (initialized via set_perlin_seed).
 /// Falls back to reference permutation table if no sampler is set (for backward compatibility).
 /// Returns a value roughly in [-1, 1].
-pub fn perlin(p: Vec3) -> f32 {
-    // Try to use the thread-local seeded sampler
-    let result = PERLIN_SAMPLER.with(|sampler| {
-        if let Some(pns) = sampler.borrow().as_ref() {
-            Some(sample_perlin(pns, p.x as f64, p.y as f64, p.z as f64) as f32)
-        } else {
-            None
-        }
-    });
-
-    if let Some(value) = result {
-        return value;
-    }
-
-    // Fallback to reference implementation if no sampler is set
-    perlin_reference(p)
+pub fn perlin(p: Vec3, perm_table: &PerlinNoiseSampler) -> f32 {
+    let x = sample_perlin(perm_table, p.x as f64, p.y as f64, p.z as f64) as f32;
+    let y = x.abs();
+    x + y * 0.0
 }
 
 /// Reference implementation of Perlin noise using Ken Perlin's permutation table
@@ -219,43 +249,6 @@ fn perlin_reference(p: Vec3) -> f32 {
         ),
     )
 }
-
-// ---------------------------------------------------------------------------
-// Minecraft old BlendedNoise
-// ---------------------------------------------------------------------------
-
-/// Single-octave improved-Perlin sample with a large offset to decorrelate from
-/// the default `perlin()` (simulates a differently-seeded noise instance).
-#[inline]
-fn perlin_offset(p: Vec3, offset: f32) -> f32 {
-    perlin(Vec3::new(p.x + offset, p.y + offset, p.z + offset))
-}
-
-/// Multi-octave Perlin noise (fBm).  `octaves` controls detail; amplitude
-/// halves and frequency doubles each octave.  Returns an *unnormalised* sum.
-fn octave_perlin(p: Vec3, octaves: u32, offset: f32) -> f32 {
-    let mut value = 0.0_f32;
-    let mut amplitude = 1.0_f32;
-    let mut frequency = 1.0_f32;
-    for _ in 0..octaves {
-        value += perlin_offset(p * frequency, offset) * amplitude;
-        amplitude *= 0.5;
-        frequency *= 2.0;
-    }
-    value
-}
-
-/// Minecraft's old `BlendedNoise.sampleAndClampNoise`.
-///
-/// Blends between a *min-limit* and *max-limit* octave noise using a *main*
-/// noise as the interpolation factor.
-///
-/// Parameters (matching Minecraft field names):
-///   `xz_scale`  – horizontal stretch of the limit noises  
-///   `y_scale`   – vertical stretch of the limit noises  
-///   `xz_factor` – additional horizontal divisor for the *main* noise  
-///   `y_factor`  – additional vertical divisor for the *main* noise  
-///   `smear_scale_multiplier` – extra vertical compression on the main noise  
 pub fn old_blended_noise(
     p: Vec3,
     xz_scale: f32,
@@ -264,24 +257,5 @@ pub fn old_blended_noise(
     y_factor: f32,
     smear_scale_multiplier: f32,
 ) -> f32 {
-    // Scaled position for the min / max limit noises (16 octaves each)
-    let limit_pos = Vec3::new(p.x * xz_scale, p.y * y_scale, p.z * xz_scale);
-
-    // Scaled position for the main (blend-factor) noise (8 octaves)
-    let smear = y_factor * smear_scale_multiplier;
-    let main_pos = Vec3::new(
-        p.x * xz_scale / xz_factor,
-        p.y * y_scale / smear,
-        p.z * xz_scale / xz_factor,
-    );
-
-    // Sample the two limit noises with different offsets to decorrelate them,
-    // matching Minecraft's use of separate RandomSource instances.
-    let min_limit = octave_perlin(limit_pos, 16, 0.0) / 512.0;
-    let max_limit = octave_perlin(limit_pos, 16, 256.0) / 512.0;
-    let main = octave_perlin(main_pos, 8, 512.0) / 10.0;
-
-    // clampedLerp(min, max, (main + 1) / 2)
-    let t = ((main + 1.0) * 0.5).clamp(0.0, 1.0);
-    lerp_f32(t, min_limit, max_limit)
+    0.0
 }
