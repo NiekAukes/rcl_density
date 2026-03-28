@@ -2,13 +2,15 @@
 
 mod density_function;
 pub mod math;
+pub mod mathf64;
 mod orchestration;
 pub mod perlin;
 pub mod random;
 pub mod utils;
+pub mod utilsf64;
 pub mod xoroshiro;
 
-pub use math::{Pos3, Vec3};
+pub use mathf64::{Pos3, Vec3};
 pub use utils::set_perlin_seed;
 
 pub fn add(left: u64, right: u64) -> u64 {
@@ -27,9 +29,9 @@ pub fn add(left: u64, right: u64) -> u64 {
 
 /// Sample density at a single point given a seed and origin.
 /// Returns the main final density value (the 12th output, index 11).
-pub fn sample_density_at(seed: i64, origin: Vec3) -> f32 {
+pub fn sample_density_at(seed: i64, origin: Vec3) -> f64 {
     let outputs = orchestration_seeded(seed, origin);
-    outputs.continents[0]
+    outputs.final_density[0]
 }
 
 #[cfg(test)]

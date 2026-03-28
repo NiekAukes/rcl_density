@@ -1,3 +1,5 @@
 /target
 /src/density_function.rs
 /src/orchestration.rs
+/src/gpu_orchestrator.rs
+/shaders

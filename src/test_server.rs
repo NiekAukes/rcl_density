@@ -3,9 +3,9 @@ use std::net::TcpListener;
 
 use crate::utils::make_permutation_table;
 
-use crate::math::{Pos3, Vec3, as_index};
+use crate::mathf64::{Pos3, Vec3, as_index};
 use crate::perlin::{create_perlin_noise_sampler, sample_perlin};
-use crate::utils::PerlinNoiseSampler;
+use crate::utilsf64::{PerlinNoiseSampler, abs, clamp, fade, hermite, max, min, old_blended_noise};
 use crate::xoroshiro::{
     Xoroshiro128PlusPlusRandom, XoroshiroSeed, create_xoroshiro_seed, create_xoroshiro_seed_str,
 };
@@ -63,6 +63,21 @@ use crate::{density_function, orchestration, utils};
 /// `8`=fluid_level_spread, `9`=final_density, `10`=ridges, `11`=lava, `12`=erosion,
 /// `13`=barrier, `14`=minecraft_cave_layer, `15`=fluid_level_floodedness,
 /// `16`=minecraft_temperature_med
+///
+/// ### Single-density orchestration (pruned DAG)
+/// These commands compute only the named density and its transitive dependencies,
+/// rather than the full orchestration. Much faster when you only need one output.
+///
+/// | Name                      | Args                                                    | Returns                 |
+/// |---------------------------|---------------------------------------------------------|-------------------------|
+/// | `density_single_chunk`    | `seed origin_x origin_y origin_z density_name`          | `name:min/max/mean`     |
+/// | `density_single_point`    | `seed origin_x origin_y origin_z px py pz density_name` | 1 float                |
+/// | `density_single_chunk_all`| `seed origin_x origin_y origin_z density_name`          | 65536 floats            |
+///
+/// Valid `density_name` values: `barrier`, `continents`, `depth`, `erosion`,
+/// `final_density`, `fluid_level_floodedness`, `fluid_level_spread`,
+/// `initial_density_without_jaggedness`, `lava`, `ridges`, `temperature`,
+/// `vegetation`, `vein_gap`, `vein_ridged`, `vein_toggle`
 ///
 /// ### Permutation / Double Perlin functions
 /// `seed` is a u64 (world seed). String keys are hashed via MD5 (`create_xoroshiro_seed_str`).
@@ -139,29 +154,80 @@ pub fn run(addr: &str) {
     }
 }
 
-use crate::orchestration::OrchestrationOutput;
+use crate::orchestration::{self as orch, OrchestrationOutput, PermutationTables};
 
-const NUM_OUTPUTS: usize = 17;
+const NUM_OUTPUTS: usize = 1;
+const MIN_Y: i32 = -64;
+const HEIGHT: usize = (320 - MIN_Y) as usize;
+const DIMS: usize = 16 * HEIGHT * 16;
 
-fn get_output(outputs: &OrchestrationOutput, idx: usize) -> Option<&Box<[f32; 65536]>> {
+/// Run a single-density orchestration by name.
+/// Returns the pruned output buffer or None if the name is unknown.
+fn run_single_density(
+    name: &str,
+    origin: Vec3,
+    perm_tables: &PermutationTables,
+) -> Option<Box<[f64; DIMS]>> {
+    match name {
+        // "barrier" => Some(orch::orchestrate_barrier(origin, perm_tables)),
+        // "continents" => Some(orch::orchestrate_continents(origin, perm_tables)),
+        // "depth" => Some(orch::orchestrate_depth(origin, perm_tables)),
+        // "erosion" => Some(orch::orchestrate_erosion(origin, perm_tables)),
+        "final_density" => Some(orch::orchestrate_final_density(origin, perm_tables)),
+        // "fluid_level_floodedness" => Some(orch::orchestrate_fluid_level_floodedness(
+        //     origin,
+        //     perm_tables,
+        // )),
+        // "fluid_level_spread" => Some(orch::orchestrate_fluid_level_spread(origin, perm_tables)),
+        // "initial_density_without_jaggedness" => Some(
+        //     orch::orchestrate_initial_density_without_jaggedness(origin, perm_tables),
+        // ),
+        // "lava" => Some(orch::orchestrate_lava(origin, perm_tables)),
+        // "ridges" => Some(orch::orchestrate_ridges(origin, perm_tables)),
+        // "temperature" => Some(orch::orchestrate_temperature(origin, perm_tables)),
+        // "vegetation" => Some(orch::orchestrate_vegetation(origin, perm_tables)),
+        // "vein_gap" => Some(orch::orchestrate_vein_gap(origin, perm_tables)),
+        // "vein_ridged" => Some(orch::orchestrate_vein_ridged(origin, perm_tables)),
+        // "vein_toggle" => Some(orch::orchestrate_vein_toggle(origin, perm_tables)),
+        _ => None,
+    }
+}
+
+const VALID_DENSITY_NAMES: &[&str] = &[
+    "barrier",
+    "continents",
+    "depth",
+    "erosion",
+    "final_density",
+    "fluid_level_floodedness",
+    "fluid_level_spread",
+    "initial_density_without_jaggedness",
+    "lava",
+    "ridges",
+    "temperature",
+    "vegetation",
+    "vein_gap",
+    "vein_ridged",
+    "vein_toggle",
+];
+
+fn get_output(outputs: &OrchestrationOutput, idx: usize) -> Option<&Box<[f64; DIMS]>> {
     match idx {
-        0 => Some(&outputs.temperature),
-        1 => Some(&outputs.vegetation),
-        2 => Some(&outputs.initial_density_without_jaggedness),
-        3 => Some(&outputs.vein_toggle),
-        4 => Some(&outputs.continents),
-        5 => Some(&outputs.vein_gap),
-        6 => Some(&outputs.vein_ridged),
-        7 => Some(&outputs.depth),
-        8 => Some(&outputs.fluid_level_spread),
+        // 0 => Some(&outputs.temperature),
+        // 1 => Some(&outputs.vegetation),
+        // 2 => Some(&outputs.initial_density_without_jaggedness),
+        // 3 => Some(&outputs.vein_toggle),
+        // 4 => Some(&outputs.continents),
+        // 5 => Some(&outputs.vein_gap),
+        // 6 => Some(&outputs.vein_ridged),
+        // 7 => Some(&outputs.depth),
+        // 8 => Some(&outputs.fluid_level_spread),
         9 => Some(&outputs.final_density),
-        10 => Some(&outputs.ridges),
-        11 => Some(&outputs.lava),
-        12 => Some(&outputs.erosion),
-        13 => Some(&outputs.barrier),
-        14 => Some(&outputs.minecraft_cave_layer),
-        15 => Some(&outputs.fluid_level_floodedness),
-        16 => Some(&outputs.minecraft_temperature_med),
+        // 10 => Some(&outputs.ridges),
+        // 11 => Some(&outputs.lava),
+        // 12 => Some(&outputs.erosion),
+        // 13 => Some(&outputs.barrier),
+        // 14 => Some(&outputs.fluid_level_floodedness),
         _ => None,
     }
 }
@@ -183,32 +249,32 @@ fn dispatch(line: &str) -> String {
         "ping" => "OK pong".into(),
 
         "hermite" => with_args(args, 5, |a| {
-            let v = utils::hermite(a[0], a[1], a[2], a[3], a[4]);
+            let v = hermite(a[0], a[1], a[2], a[3], a[4]);
             format!("OK {v:.10}")
         }),
 
         "fade" => with_args(args, 3, |a| {
-            let r = utils::fade(Vec3::new(a[0], a[1], a[2]));
+            let r = fade(Vec3::new(a[0], a[1], a[2]));
             format!("OK {:.10} {:.10} {:.10}", r.x, r.y, r.z)
         }),
 
         "clamp" => with_args(args, 3, |a| {
-            let v = utils::clamp(a[0], a[1], a[2]);
+            let v = clamp(a[0], a[1], a[2]);
             format!("OK {v:.10}")
         }),
 
         "abs" => with_args(args, 1, |a| {
-            let v = utils::abs(a[0]);
+            let v = abs(a[0]);
             format!("OK {v:.10}")
         }),
 
         "min" => with_args(args, 2, |a| {
-            let v = utils::min(a[0], a[1]);
+            let v = min(a[0], a[1]);
             format!("OK {v:.10}")
         }),
 
         "max" => with_args(args, 2, |a| {
-            let v = utils::max(a[0], a[1]);
+            let v = max(a[0], a[1]);
             format!("OK {v:.10}")
         }),
 
@@ -250,13 +316,12 @@ fn dispatch(line: &str) -> String {
         }
 
         "old_blended_noise" => with_args(args, 8, |a| {
-            let v =
-                utils::old_blended_noise(Vec3::new(a[0], a[1], a[2]), a[3], a[4], a[5], a[6], a[7]);
+            let v = old_blended_noise(Vec3::new(a[0], a[1], a[2]), a[3], a[4], a[5], a[6], a[7]);
             format!("OK {v:.10}")
         }),
 
         // density_point <seed> <ox> <oy> <oz> <px> <py> <pz> <output_idx>
-        "density_point" => with_seed_and_f32_args(args, 7, |seed, a| {
+        "density_point" => with_seed_and_f64_args(args, 7, |seed, a| {
             let origin = Vec3::new(a[0], a[1], a[2]);
             let patch_pos = Pos3 {
                 x: a[3] as i32,
@@ -290,44 +355,39 @@ fn dispatch(line: &str) -> String {
         }),
 
         // density_chunk <seed> <ox> <oy> <oz>
-        "density_chunk" => with_seed_and_f32_args(args, 3, |seed, a| {
+        "density_chunk" => with_seed_and_f64_args(args, 3, |seed, a| {
             let origin = Vec3::new(a[0], a[1], a[2]);
 
             let outputs = super::orchestration_seeded(seed, origin);
 
             // Return min/max/mean for each named output
-            let all_outputs: [(&str, &Box<[f32; 65536]>); NUM_OUTPUTS] = [
-                ("temperature", &outputs.temperature),
-                ("vegetation", &outputs.vegetation),
-                (
-                    "initial_density_without_jaggedness",
-                    &outputs.initial_density_without_jaggedness,
-                ),
-                ("vein_toggle", &outputs.vein_toggle),
-                ("continents", &outputs.continents),
-                ("vein_gap", &outputs.vein_gap),
-                ("vein_ridged", &outputs.vein_ridged),
-                ("depth", &outputs.depth),
-                ("fluid_level_spread", &outputs.fluid_level_spread),
+            let all_outputs: [(&str, &Box<[f64; DIMS]>); NUM_OUTPUTS] = [
+                // ("temperature", &outputs.temperature),
+                // ("vegetation", &outputs.vegetation),
+                // (
+                //     "initial_density_without_jaggedness",
+                //     &outputs.initial_density_without_jaggedness,
+                // ),
+                // ("vein_toggle", &outputs.vein_toggle),
+                // ("continents", &outputs.continents),
+                // ("vein_gap", &outputs.vein_gap),
+                // ("vein_ridged", &outputs.vein_ridged),
+                // ("depth", &outputs.depth),
+                // ("fluid_level_spread", &outputs.fluid_level_spread),
                 ("final_density", &outputs.final_density),
-                ("ridges", &outputs.ridges),
-                ("lava", &outputs.lava),
-                ("erosion", &outputs.erosion),
-                ("barrier", &outputs.barrier),
-                ("minecraft_cave_layer", &outputs.minecraft_cave_layer),
-                ("fluid_level_floodedness", &outputs.fluid_level_floodedness),
-                (
-                    "minecraft_temperature_med",
-                    &outputs.minecraft_temperature_med,
-                ),
+                // ("ridges", &outputs.ridges),
+                // ("lava", &outputs.lava),
+                // ("erosion", &outputs.erosion),
+                // ("barrier", &outputs.barrier),
+                // ("fluid_level_floodedness", &outputs.fluid_level_floodedness),
             ];
             let mut stats = Vec::new();
             for (name, output) in &all_outputs {
                 {
                     let output = *output;
-                    let mut min = f32::INFINITY;
-                    let mut max = f32::NEG_INFINITY;
-                    let mut sum = 0.0_f32;
+                    let mut min = f64::INFINITY;
+                    let mut max = f64::NEG_INFINITY;
+                    let mut sum = 0.0;
 
                     for &val in output.iter() {
                         if val.is_finite() {
@@ -346,7 +406,7 @@ fn dispatch(line: &str) -> String {
         }),
 
         // density_chunk_all <seed> <ox> <oy> <oz> <output_idx>
-        "density_chunk_all" => with_seed_and_f32_args(args, 4, |seed, a| {
+        "density_chunk_all" => with_seed_and_f64_args(args, 4, |seed, a| {
             let origin = Vec3::new(a[0], a[1], a[2]);
             let output_idx = a[3] as usize;
 
@@ -417,129 +477,279 @@ fn dispatch(line: &str) -> String {
         // double_perlin <seed> <seed1_name> x y z
         // seed is a u64 (world seed), seed1_name is string keys.
         // Builds two permutation tables (iteration_count 0 and 1) and samples
-        "double_perlin" => {
+        // "double_perlin" => {
+        //     if args.len() != 5 {
+        //         format!("ERR expected 5 arg (seed), got {}", args.len())
+        //     } else {
+        //         let seed = match args[0].parse::<i64>() {
+        //             Ok(v) => v,
+        //             Err(e) => return format!("ERR arg 0 (seed) parse error: {e}"),
+        //         };
+        //         let seed1_name = match args.get(1) {
+        //             Some(s) => *s,
+        //             None => return format!("ERR missing arg 1 (seed1_name)"),
+        //         };
+        //         let x = match args.get(2).and_then(|s| s.parse::<f64>().ok()) {
+        //             Some(v) => v,
+        //             None => return format!("ERR arg 2 (x) parse error"),
+        //         };
+        //         let y = match args.get(3).and_then(|s| s.parse::<f64>().ok()) {
+        //             Some(v) => v,
+        //             None => return format!("ERR arg 3 (y) parse error"),
+        //         };
+        //         let z = match args.get(4).and_then(|s| s.parse::<f64>().ok()) {
+        //             Some(v) => v,
+        //             None => return format!("ERR arg 4 (z) parse error"),
+        //         };
+
+        //         if seed1_name == "minecraft:ore_gap" {
+        //             let seed2_name = "octave_-5";
+        //             let seed1 = create_xoroshiro_seed_str(seed1_name);
+        //             let seed2 = create_xoroshiro_seed_str(seed2_name);
+
+        //             let mut rng =
+        //                 Xoroshiro128PlusPlusRandom::from_seed(&create_xoroshiro_seed(seed));
+
+        //             let mut splitter = rng.next_splitter();
+        //             let rng1 = splitter.split(seed1.seed_lo, seed1.seed_hi);
+
+        //             println!(
+        //                 "Base seed: seed={}, seed_lo={}, seed_hi={}",
+        //                 seed, rng.seed_lo, rng.seed_hi
+        //             );
+        //             println!(
+        //                 "splitter after split: seed_lo={}, seed_hi={}\n",
+        //                 rng1.seed_lo, rng1.seed_hi
+        //             );
+
+        //             let pt0 = make_permutation_table(
+        //                 seed,
+        //                 seed1.seed_lo,
+        //                 seed1.seed_hi,
+        //                 0,
+        //                 seed2.seed_lo,
+        //                 seed2.seed_hi,
+        //             );
+        //             let pt1 = make_permutation_table(
+        //                 seed,
+        //                 seed1.seed_lo,
+        //                 seed1.seed_hi,
+        //                 1,
+        //                 seed2.seed_lo,
+        //                 seed2.seed_hi,
+        //             );
+        //             let pns0 = PerlinNoiseSampler {
+        //                 origin_x: pt0.origin_x,
+        //                 origin_y: pt0.origin_y,
+        //                 origin_z: pt0.origin_z,
+        //                 permutation: pt0.permutation,
+        //             };
+        //             let pns1 = PerlinNoiseSampler {
+        //                 origin_x: pt1.origin_x,
+        //                 origin_y: pt1.origin_y,
+        //                 origin_z: pt1.origin_z,
+        //                 permutation: pt1.permutation,
+        //             };
+        //             // first: [0: xo=5.874, yo=14.358, zo=124.358, p0=-46, p255=42, ]},
+        //             // second: [0: xo=181.525, yo=40.360, zo=182.905, p0=-100, p255=15, ]}}
+        //             println!(
+        //                 "first: [0: xo={:.10}, yo={:.10}, zo={:.10}, p0={}, p255={}]",
+        //                 pt0.origin_x,
+        //                 pt0.origin_y,
+        //                 pt0.origin_z,
+        //                 pt0.permutation[0] as i8,
+        //                 pt0.permutation[255] as i8
+        //             );
+        //             println!(
+        //                 "second: [0: xo={:.10}, yo={:.10}, zo={:.10}, p0={}, p255={}]",
+        //                 pt1.origin_x,
+        //                 pt1.origin_y,
+        //                 pt1.origin_z,
+        //                 pt1.permutation[0] as i8,
+        //                 pt1.permutation[255] as i8
+        //             );
+        //             println!("");
+
+        //             // sample ore_gap noise at 0,0,0 with both tables
+        //             let p = Pos3 { x: 0, y: 0, z: 0 };
+        //             let origin = Vec3::new(x as f32, y as f32, z as f32);
+        //             let v0 = density_function::minecraft_ore_gap_5(p, origin, &*pt0, &*pt1);
+
+        //             return format!("OK {v0:.10}");
+        //         } else if seed1_name == "minecraft:cave_layer" {
+        //             let perm_tables = orchestration::make_permutation_tables(seed);
+        //             let p = Pos3 { x: 0, y: 0, z: 0 };
+        //             let origin = Vec3::new(x as f32, y as f32, z as f32);
+        //             let v = density_function::minecraft_cave_layer_0(
+        //                 p,
+        //                 origin,
+        //                 &perm_tables.minecraft_cave_layer_0_octave__8,
+        //                 &perm_tables.minecraft_cave_layer_1_octave__8,
+        //             );
+        //             return format!("OK {v:.10}");
+        //         } else {
+        //             return format!("ERR unknown seed1_name: {seed1_name}");
+        //         }
+        //     }
+        // }
+
+        // "temperature" => with_seed_and_f32_args(args, 3, |seed, a| {
+        //     let origin = Vec3::new(a[0], a[1], a[2]);
+        //     let outputs = super::orchestration_seeded(seed, origin);
+        //     let value = outputs.temperature[0];
+
+        //     format!("OK {value:.10}")
+        // }),
+
+        // ── Single-density orchestration commands ─────────────────────────────
+
+        // density_single_chunk <seed> <ox> <oy> <oz> <density_name>
+        "density_single_chunk" => {
             if args.len() != 5 {
-                format!("ERR expected 5 arg (seed), got {}", args.len())
-            } else {
-                let seed = match args[0].parse::<i64>() {
-                    Ok(v) => v,
-                    Err(e) => return format!("ERR arg 0 (seed) parse error: {e}"),
-                };
-                let seed1_name = match args.get(1) {
-                    Some(s) => *s,
-                    None => return format!("ERR missing arg 1 (seed1_name)"),
-                };
-                let x = match args.get(2).and_then(|s| s.parse::<f64>().ok()) {
-                    Some(v) => v,
-                    None => return format!("ERR arg 2 (x) parse error"),
-                };
-                let y = match args.get(3).and_then(|s| s.parse::<f64>().ok()) {
-                    Some(v) => v,
-                    None => return format!("ERR arg 3 (y) parse error"),
-                };
-                let z = match args.get(4).and_then(|s| s.parse::<f64>().ok()) {
-                    Some(v) => v,
-                    None => return format!("ERR arg 4 (z) parse error"),
-                };
-
-                if seed1_name == "minecraft:ore_gap" {
-                    let seed2_name = "octave_-5";
-                    let seed1 = create_xoroshiro_seed_str(seed1_name);
-                    let seed2 = create_xoroshiro_seed_str(seed2_name);
-
-                    let mut rng =
-                        Xoroshiro128PlusPlusRandom::from_seed(&create_xoroshiro_seed(seed));
-
-                    let mut splitter = rng.next_splitter();
-                    let rng1 = splitter.split(seed1.seed_lo, seed1.seed_hi);
-
-                    println!(
-                        "Base seed: seed={}, seed_lo={}, seed_hi={}",
-                        seed, rng.seed_lo, rng.seed_hi
-                    );
-                    println!(
-                        "splitter after split: seed_lo={}, seed_hi={}\n",
-                        rng1.seed_lo, rng1.seed_hi
-                    );
-
-                    let pt0 = make_permutation_table(
-                        seed,
-                        seed1.seed_lo,
-                        seed1.seed_hi,
-                        0,
-                        seed2.seed_lo,
-                        seed2.seed_hi,
-                    );
-                    let pt1 = make_permutation_table(
-                        seed,
-                        seed1.seed_lo,
-                        seed1.seed_hi,
-                        1,
-                        seed2.seed_lo,
-                        seed2.seed_hi,
-                    );
-                    let pns0 = PerlinNoiseSampler {
-                        origin_x: pt0.origin_x,
-                        origin_y: pt0.origin_y,
-                        origin_z: pt0.origin_z,
-                        permutation: pt0.permutation,
-                    };
-                    let pns1 = PerlinNoiseSampler {
-                        origin_x: pt1.origin_x,
-                        origin_y: pt1.origin_y,
-                        origin_z: pt1.origin_z,
-                        permutation: pt1.permutation,
-                    };
-                    // first: [0: xo=5.874, yo=14.358, zo=124.358, p0=-46, p255=42, ]},
-                    // second: [0: xo=181.525, yo=40.360, zo=182.905, p0=-100, p255=15, ]}}
-                    println!(
-                        "first: [0: xo={:.10}, yo={:.10}, zo={:.10}, p0={}, p255={}]",
-                        pt0.origin_x,
-                        pt0.origin_y,
-                        pt0.origin_z,
-                        pt0.permutation[0] as i8,
-                        pt0.permutation[255] as i8
-                    );
-                    println!(
-                        "second: [0: xo={:.10}, yo={:.10}, zo={:.10}, p0={}, p255={}]",
-                        pt1.origin_x,
-                        pt1.origin_y,
-                        pt1.origin_z,
-                        pt1.permutation[0] as i8,
-                        pt1.permutation[255] as i8
-                    );
-                    println!("");
-
-                    // sample ore_gap noise at 0,0,0 with both tables
-                    let p = Pos3 { x: 0, y: 0, z: 0 };
-                    let origin = Vec3::new(x as f32, y as f32, z as f32);
-                    let v0 = density_function::minecraft_ore_gap(p, origin, &*pt0, &*pt1);
-
-                    return format!("OK {v0:.10}");
-                } else if seed1_name == "minecraft:cave_layer" {
-                    let perm_tables = orchestration::make_permutation_tables(seed);
-                    let p = Pos3 { x: 0, y: 0, z: 0 };
-                    let origin = Vec3::new(x as f32, y as f32, z as f32);
-                    let v = density_function::minecraft_cave_layer(
-                        p,
-                        origin,
-                        &perm_tables.minecraft_cave_layer_0_octave__8,
-                        &perm_tables.minecraft_cave_layer_1_octave__8,
-                    );
-                    return format!("OK {v:.10}");
-                } else {
-                    return format!("ERR unknown seed1_name: {seed1_name}");
+                return format!(
+                    "ERR expected 5 args (seed ox oy oz density_name), got {}",
+                    args.len()
+                );
+            }
+            let seed = match args[0].parse::<i64>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 0 (seed) parse error: {e}"),
+            };
+            let ox = match args[1].parse::<f64>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 1 (ox) parse error: {e}"),
+            };
+            let oy = match args[2].parse::<f64>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 2 (oy) parse error: {e}"),
+            };
+            let oz = match args[3].parse::<f64>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 3 (oz) parse error: {e}"),
+            };
+            let density_name = args[4];
+            let origin = Vec3::new(ox, oy, oz);
+            let perm_tables = utils::set_perlin_seed(seed);
+            match run_single_density(density_name, origin, perm_tables) {
+                Some(output) => {
+                    let mut min = f64::INFINITY;
+                    let mut max = f64::NEG_INFINITY;
+                    let mut sum = 0.0;
+                    for &val in output.iter() {
+                        if val.is_finite() {
+                            min = min.min(val);
+                            max = max.max(val);
+                            sum += val;
+                        }
+                    }
+                    let mean = sum / 65536.0;
+                    format!("OK {density_name}:{min:.6}/{max:.6}/{mean:.6}")
                 }
+                None => format!(
+                    "ERR unknown density_name: {density_name}. Valid: {}",
+                    VALID_DENSITY_NAMES.join(", ")
+                ),
             }
         }
 
-        "temperature" => with_seed_and_f32_args(args, 3, |seed, a| {
-            let origin = Vec3::new(a[0], a[1], a[2]);
-            let outputs = super::orchestration_seeded(seed, origin);
-            let value = outputs.temperature[0];
+        // density_single_point <seed> <ox> <oy> <oz> <px> <py> <pz> <density_name>
+        "density_single_point" => {
+            if args.len() != 8 {
+                return format!(
+                    "ERR expected 8 args (seed ox oy oz px py pz density_name), got {}",
+                    args.len()
+                );
+            }
+            let seed = match args[0].parse::<i64>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 0 (seed) parse error: {e}"),
+            };
+            let ox = match args[1].parse::<f64>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 1 (ox) parse error: {e}"),
+            };
+            let oy = match args[2].parse::<f64>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 2 (oy) parse error: {e}"),
+            };
+            let oz = match args[3].parse::<f64>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 3 (oz) parse error: {e}"),
+            };
+            let px = match args[4].parse::<i32>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 4 (px) parse error: {e}"),
+            };
+            let py = match args[5].parse::<i32>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 5 (py) parse error: {e}"),
+            };
+            let pz = match args[6].parse::<i32>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 6 (pz) parse error: {e}"),
+            };
+            let density_name = args[7];
+            let origin = Vec3::new(ox, oy, oz);
+            let patch_pos = Pos3 {
+                x: px,
+                y: py,
+                z: pz,
+            };
+            let idx = as_index(patch_pos, 16, HEIGHT as i32) as usize;
+            if idx >= DIMS {
+                return format!("ERR invalid patch position: {idx}");
+            }
+            let perm_tables = utils::set_perlin_seed(seed);
+            match run_single_density(density_name, origin, perm_tables) {
+                Some(output) => {
+                    let value = output[idx];
+                    format!("OK {value}")
+                }
+                None => format!(
+                    "ERR unknown density_name: {density_name}. Valid: {}",
+                    VALID_DENSITY_NAMES.join(", ")
+                ),
+            }
+        }
 
-            format!("OK {value:.10}")
-        }),
+        // density_single_chunk_all <seed> <ox> <oy> <oz> <density_name>
+        "density_single_chunk_all" => {
+            if args.len() != 5 {
+                return format!(
+                    "ERR expected 5 args (seed ox oy oz density_name), got {}",
+                    args.len()
+                );
+            }
+            let seed = match args[0].parse::<i64>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 0 (seed) parse error: {e}"),
+            };
+            let ox = match args[1].parse::<f64>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 1 (ox) parse error: {e}"),
+            };
+            let oy = match args[2].parse::<f64>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 2 (oy) parse error: {e}"),
+            };
+            let oz = match args[3].parse::<f64>() {
+                Ok(v) => v,
+                Err(e) => return format!("ERR arg 3 (oz) parse error: {e}"),
+            };
+            let density_name = args[4];
+            let origin = Vec3::new(ox, oy, oz);
+            let perm_tables = utils::set_perlin_seed(seed);
+            match run_single_density(density_name, origin, perm_tables) {
+                Some(output) => {
+                    let formatted: Vec<String> = output.iter().map(|v| format!("{}", v)).collect();
+                    format!("OK {}", formatted.join(" "))
+                }
+                None => format!(
+                    "ERR unknown density_name: {density_name}. Valid: {}",
+                    VALID_DENSITY_NAMES.join(", ")
+                ),
+            }
+        }
 
         // ── Xoroshiro128++ commands ───────────────────────────────────────────
 
@@ -598,10 +808,10 @@ fn with_i64_args(args: &[&str], expected: usize, f: impl FnOnce(&[i64]) -> Strin
 }
 
 /// Parse `args` as one i64 seed followed by `n_f32` f32s, then call `f(seed, floats)`.
-fn with_seed_and_f32_args(
+fn with_seed_and_f64_args(
     args: &[&str],
     n_f32: usize,
-    f: impl FnOnce(i64, &[f32]) -> String,
+    f: impl FnOnce(i64, &[f64]) -> String,
 ) -> String {
     let expected = 1 + n_f32;
     if args.len() != expected {
@@ -613,7 +823,7 @@ fn with_seed_and_f32_args(
     };
     let mut floats = Vec::with_capacity(n_f32);
     for (i, s) in args[1..].iter().enumerate() {
-        match s.parse::<f32>() {
+        match s.parse::<f64>() {
             Ok(v) => floats.push(v),
             Err(e) => return format!("ERR arg {} parse error: {e}", i + 1),
         }
@@ -622,14 +832,14 @@ fn with_seed_and_f32_args(
 }
 
 /// Parse `args` as `expected` number of f32s, then call `f`.
-fn with_args(args: &[&str], expected: usize, f: impl FnOnce(&[f32]) -> String) -> String {
+fn with_args(args: &[&str], expected: usize, f: impl FnOnce(&[f64]) -> String) -> String {
     if args.len() != expected {
         return format!("ERR expected {expected} args, got {}", args.len());
     }
 
     let mut parsed = Vec::with_capacity(expected);
     for (i, s) in args.iter().enumerate() {
-        match s.parse::<f32>() {
+        match s.parse::<f64>() {
             Ok(v) => parsed.push(v),
             Err(e) => return format!("ERR arg {i} parse error: {e}"),
         }
@@ -885,5 +1095,69 @@ mod tests {
         // (very unlikely they'd be exactly equal)
         // Note: We only assert they're both finite, not different, since it's probabilistic
         assert!(val1.is_finite() && val2.is_finite());
+    }
+
+    #[test]
+    fn density_single_point_basic() {
+        let resp = dispatch("density_single_point 0 0 0 0 0 0 0 barrier");
+        assert!(resp.starts_with("OK"), "got: {resp}");
+        let val: f32 = resp.strip_prefix("OK ").unwrap().trim().parse().unwrap();
+        assert!(
+            val.is_finite(),
+            "density_single_point should return finite value"
+        );
+    }
+
+    #[test]
+    fn density_single_point_unknown_density() {
+        let resp = dispatch("density_single_point 0 0 0 0 0 0 0 nonexistent");
+        assert!(
+            resp.starts_with("ERR"),
+            "should reject unknown density_name"
+        );
+    }
+
+    #[test]
+    fn density_single_chunk_basic() {
+        let resp = dispatch("density_single_chunk 0 0 0 0 barrier");
+        assert!(resp.starts_with("OK"), "got: {resp}");
+        assert!(
+            resp.contains("barrier:"),
+            "should contain density name in stats"
+        );
+    }
+
+    #[test]
+    fn density_single_chunk_all_basic() {
+        let resp = dispatch("density_single_chunk_all 0 0 0 0 barrier");
+        assert!(resp.starts_with("OK"), "got: {resp}");
+        let content = resp.strip_prefix("OK ").unwrap().trim();
+        let count = content.split_whitespace().count();
+        assert_eq!(count, 65536, "should return 65536 floats, got {count}");
+    }
+
+    #[test]
+    fn density_single_matches_full_orchestration() {
+        // Verify that single-density output matches the corresponding field
+        // from the full orchestration
+        let full_resp = dispatch("density_point 0 0 0 0 0 0 0 4"); // 4 = continents
+        let single_resp = dispatch("density_single_point 0 0 0 0 0 0 0 continents");
+        assert!(full_resp.starts_with("OK") && single_resp.starts_with("OK"));
+        let full_val: f32 = full_resp
+            .strip_prefix("OK ")
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let single_val: f32 = single_resp
+            .strip_prefix("OK ")
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert_eq!(
+            full_val, single_val,
+            "single-density should match full orchestration: full={full_val}, single={single_val}"
+        );
     }
 }

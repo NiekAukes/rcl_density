@@ -2,41 +2,20 @@ use crate::orchestration::{PermutationTables, make_permutation_tables, orchestra
 use crate::perlin::{create_perlin_noise_sampler, sample_perlin};
 use crate::random::Random;
 use crate::{
-    math::Vec3,
+    mathf64::Vec3,
     xoroshiro::{Xoroshiro128PlusPlusRandom, create_xoroshiro_seed},
 };
 use std::cell::RefCell;
 
-// Thread-local storage for the seeded Perlin noise sampler
-thread_local! {
-    static PERLIN_SAMPLER: RefCell<Option<&'static PermutationTables>> = RefCell::new(None);
-    static CURRENT_SEED: RefCell<Option<i64>> = RefCell::new(None);
-}
-
-#[derive(Clone)]
-pub struct PerlinNoiseSampler {
-    pub permutation: [u8; 256],
-    pub origin_x: f64,
-    pub origin_y: f64,
-    pub origin_z: f64,
-}
+// Re-export PerlinNoiseSampler from utils so perlin.rs functions are compatible
+pub use crate::utils::PerlinNoiseSampler;
 
 /// Initialize the thread-local Perlin sampler with the given seed.
 /// Must be called before any perlin() calls in this thread.
-pub fn set_perlin_seed(seed: i64) -> &'static PermutationTables {
-    if CURRENT_SEED.with(|s| s.borrow().map_or(true, |current| current != seed)) {
-        let perm_tables = make_permutation_tables(seed);
-        // leak the PermutationTables to get a 'static reference (safe because we never modify it after this)
-        let perm_tables_ref: &'static PermutationTables = Box::leak(Box::new(perm_tables));
-
-        PERLIN_SAMPLER.with(|p| *p.borrow_mut() = Some(perm_tables_ref));
-        CURRENT_SEED.with(|s| *s.borrow_mut() = Some(seed));
-    }
-    PERLIN_SAMPLER.with(|p| p.borrow().unwrap())
-}
+pub use crate::utils::set_perlin_seed;
 
 // Helper noise / interpolation functions
-pub fn hermite(t: f32, p0: f32, p1: f32, m0: f32, m1: f32) -> f32 {
+pub fn hermite(t: f64, p0: f64, p1: f64, m0: f64, m1: f64) -> f64 {
     let t2 = t * t;
     let t3 = t2 * t;
     (2.0 * t3 - 3.0 * t2 + 1.0) * p0
@@ -47,37 +26,36 @@ pub fn hermite(t: f32, p0: f32, p1: f32, m0: f32, m1: f32) -> f32 {
 
 pub fn fade(t: Vec3) -> Vec3 {
     Vec3::new(
-        t.x * t.x * t.x * (t.x * (t.x * 6.0 - 15.0) + 10.0),
-        t.y * t.y * t.y * (t.y * (t.y * 6.0 - 15.0) + 10.0),
-        t.z * t.z * t.z * (t.z * (t.z * 6.0 - 15.0) + 10.0),
+        t.x * t.x * t.x * (t.x * (t.x * 6.0_f64 - 15.0) + 10.0),
+        t.y * t.y * t.y * (t.y * (t.y * 6.0_f64 - 15.0) + 10.0),
+        t.z * t.z * t.z * (t.z * (t.z * 6.0_f64 - 15.0) + 10.0),
     )
 }
 
 #[inline(always)]
-pub fn abs(x: f32) -> f32 {
+pub fn abs(x: f64) -> f64 {
     x.abs()
 }
 
 #[inline(always)]
-pub fn max(a: f32, b: f32) -> f32 {
+pub fn max(a: f64, b: f64) -> f64 {
     a.max(b)
 }
 
 #[inline(always)]
-pub fn min(a: f32, b: f32) -> f32 {
+pub fn min(a: f64, b: f64) -> f64 {
     a.min(b)
 }
 
 #[inline(always)]
-pub fn clamp(x: f32, min: f32, max: f32) -> f32 {
+pub fn clamp(x: f64, min: f64, max: f64) -> f64 {
     x.clamp(min, max)
 }
 
-pub fn make_buffer<const C: usize>() -> Box<[f32; C]> {
+pub fn make_buffer<const C: usize>() -> Box<[f64; C]> {
     // make a buffer of size C
     // without initialising it (to avoid the cost of zeroing it out, and having large arrays on the stack)
-    let mut buffer: Box<[f32; C]> =
-        unsafe { Box::new(std::mem::MaybeUninit::uninit().assume_init()) };
+    let buffer: Box<[f64; C]> = unsafe { Box::new(std::mem::MaybeUninit::uninit().assume_init()) };
     buffer
 }
 
@@ -148,7 +126,7 @@ const PERM: [u8; 512] = [
 /// Minecraft's `gradDot` – picks one of 16 gradient directions (12 unique)
 /// from `SimplexNoise.GRADIENT` and dots it with (x, y, z).
 #[inline(always)]
-fn grad_dot(hash: u8, x: f32, y: f32, z: f32) -> f32 {
+fn grad_dot(hash: u8, x: f64, y: f64, z: f64) -> f64 {
     match hash & 0xF {
         0x0 => x + y,
         0x1 => -x + y,
@@ -171,22 +149,20 @@ fn grad_dot(hash: u8, x: f32, y: f32, z: f32) -> f32 {
 }
 
 #[inline(always)]
-fn lerp_f32(t: f32, a: f32, b: f32) -> f32 {
+fn lerp_f64(t: f64, a: f64, b: f64) -> f64 {
     a + t * (b - a)
 }
 
 /// Uses the seeded PerlinNoiseSampler when available (initialized via set_perlin_seed).
 /// Falls back to reference permutation table if no sampler is set (for backward compatibility).
 /// Returns a value roughly in [-1, 1].
-pub fn perlin(p: Vec3, perm_table: &PerlinNoiseSampler) -> f32 {
-    let x = sample_perlin(perm_table, p.x as f64, p.y as f64, p.z as f64) as f32;
-    let y = x.abs();
-    x + y * 0.0
+pub fn perlin(p: Vec3, perm_table: &PerlinNoiseSampler) -> f64 {
+    sample_perlin(perm_table, p.x, p.y, p.z)
 }
 
 /// Reference implementation of Perlin noise using Ken Perlin's permutation table
 /// (kept for backward compatibility and fallback).
-fn perlin_reference(p: Vec3) -> f32 {
+fn perlin_reference(p: Vec3) -> f64 {
     let x = p.x;
     let y = p.y;
     let z = p.z;
@@ -197,9 +173,9 @@ fn perlin_reference(p: Vec3) -> f32 {
     let zi = z.floor() as i32;
 
     // Fractional part inside the unit cube
-    let xf = x - xi as f32;
-    let yf = y - yi as f32;
-    let zf = z - zi as f32;
+    let xf = x - xi as f64;
+    let yf = y - yi as f64;
+    let zf = z - zi as f64;
 
     // Fade curves  (6t^5 - 15t^4 + 10t^3)
     let u = xf * xf * xf * (xf * (xf * 6.0 - 15.0) + 10.0);
@@ -219,29 +195,29 @@ fn perlin_reference(p: Vec3) -> f32 {
     let bb = PERM[b + 1] as usize + zi;
 
     // Trilinear interpolation of gradient dot-products
-    lerp_f32(
+    lerp_f64(
         w,
-        lerp_f32(
+        lerp_f64(
             v,
-            lerp_f32(
+            lerp_f64(
                 u,
                 grad_dot(PERM[aa], xf, yf, zf),
                 grad_dot(PERM[ba], xf - 1.0, yf, zf),
             ),
-            lerp_f32(
+            lerp_f64(
                 u,
                 grad_dot(PERM[ab], xf, yf - 1.0, zf),
                 grad_dot(PERM[bb], xf - 1.0, yf - 1.0, zf),
             ),
         ),
-        lerp_f32(
+        lerp_f64(
             v,
-            lerp_f32(
+            lerp_f64(
                 u,
                 grad_dot(PERM[aa + 1], xf, yf, zf - 1.0),
                 grad_dot(PERM[ba + 1], xf - 1.0, yf, zf - 1.0),
             ),
-            lerp_f32(
+            lerp_f64(
                 u,
                 grad_dot(PERM[ab + 1], xf, yf - 1.0, zf - 1.0),
                 grad_dot(PERM[bb + 1], xf - 1.0, yf - 1.0, zf - 1.0),
@@ -251,19 +227,19 @@ fn perlin_reference(p: Vec3) -> f32 {
 }
 pub fn old_blended_noise(
     p: Vec3,
-    xz_scale: f32,
-    y_scale: f32,
-    xz_factor: f32,
-    y_factor: f32,
-    smear_scale_multiplier: f32,
-) -> f32 {
+    xz_scale: f64,
+    y_scale: f64,
+    xz_factor: f64,
+    y_factor: f64,
+    smear_scale_multiplier: f64,
+) -> f64 {
     0.0
 }
 
 /// Computes the Y clamped gradient, equivalent to Minecraft's:
 /// `clampedMap(y, fromY, toY, fromValue, toValue)`
 ///   = `clampedLerp(fromValue, toValue, (y - fromY) / (toY - fromY))`
-pub fn y_clamped_gradient(y: f32, from_y: f32, to_y: f32, from_value: f32, to_value: f32) -> f32 {
+pub fn y_clamped_gradient(y: f64, from_y: f64, to_y: f64, from_value: f64, to_value: f64) -> f64 {
     let delta = (y - from_y) / (to_y - from_y);
     if delta <= 0.0 {
         from_value
@@ -271,5 +247,56 @@ pub fn y_clamped_gradient(y: f32, from_y: f32, to_y: f32, from_value: f32, to_va
         to_value
     } else {
         from_value + delta * (to_value - from_value)
+    }
+}
+
+/*
+protected static double scaleTunnels(double value) {
+            if (value < -0.5) {
+                return 0.75;
+            } else if (value < 0.0) {
+                return 1.0;
+            } else {
+                return value < 0.5 ? 1.5 : 2.0;
+            }
+        }
+*/
+#[inline]
+pub fn scale_tunnels(value: f64) -> f64 {
+    if value < -0.5 {
+        0.75
+    } else if value < 0.0 {
+        1.0
+    } else if value < 0.5 {
+        1.5
+    } else {
+        2.0
+    }
+}
+
+/*
+protected static double scaleCaves(double value) {
+            if (value < -0.75) {
+                return 0.5;
+            } else if (value < -0.5) {
+                return 0.75;
+            } else if (value < 0.5) {
+                return 1.0;
+            } else {
+                return value < 0.75 ? 2.0 : 3.0;
+            }
+        } */
+#[inline]
+pub fn scale_caves(value: f64) -> f64 {
+    if value < -0.75 {
+        0.5
+    } else if value < -0.5 {
+        0.75
+    } else if value < 0.5 {
+        1.0
+    } else if value < 0.75 {
+        2.0
+    } else {
+        3.0
     }
 }

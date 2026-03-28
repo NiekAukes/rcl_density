@@ -5,3 +5,15 @@ edition = "2024"
 
 [dependencies]
 md5 = "0.7"
+wgpu = "25"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
+
+[profile.release]
+opt-level = 3        # Maximum optimization
+lto = "fat"          # Best cross-crate optimization
+codegen-units = 1    # Better optimization, slower compile
+panic = "abort"      # Smaller + faster binaries
+strip = true         # Remove debug symbols
+overflow-checks = false
+debug = false
