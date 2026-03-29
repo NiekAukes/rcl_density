@@ -274,7 +274,7 @@ fn base_grid(pos3: Pos3) -> Pos3 {
 }
 
 #[inline]
-pub fn cornerx0y0z0(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx0y0z0_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x,
@@ -285,7 +285,7 @@ pub fn cornerx0y0z0(pos3: Pos3, sx: i32, sy: i32) -> usize {
 }
 
 #[inline]
-pub fn cornerx4y0z0(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx4y0z0_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x + 1,
@@ -296,7 +296,7 @@ pub fn cornerx4y0z0(pos3: Pos3, sx: i32, sy: i32) -> usize {
 }
 
 #[inline]
-pub fn cornerx0y4z0(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx0y8z0_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x,
@@ -307,7 +307,7 @@ pub fn cornerx0y4z0(pos3: Pos3, sx: i32, sy: i32) -> usize {
 }
 
 #[inline]
-pub fn cornerx4y4z0(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx4y8z0_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x + 1,
@@ -318,7 +318,7 @@ pub fn cornerx4y4z0(pos3: Pos3, sx: i32, sy: i32) -> usize {
 }
 
 #[inline]
-pub fn cornerx0y0z4(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx0y0z4_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x,
@@ -329,7 +329,7 @@ pub fn cornerx0y0z4(pos3: Pos3, sx: i32, sy: i32) -> usize {
 }
 
 #[inline]
-pub fn cornerx4y0z4(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx4y0z4_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x + 1,
@@ -340,7 +340,7 @@ pub fn cornerx4y0z4(pos3: Pos3, sx: i32, sy: i32) -> usize {
 }
 
 #[inline]
-pub fn cornerx0y4z4(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx0y8z4_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x,
@@ -348,17 +348,11 @@ pub fn cornerx0y4z4(pos3: Pos3, sx: i32, sy: i32) -> usize {
         z: g.z + 1,
     };
     let i = as_index(npos, sx, sy);
-    if i == 3300 {
-        println!(
-            "cornerx0y4z4: pos3={:?}, g={:?}, npos={:?}, i={}",
-            pos3, g, npos, i
-        );
-    }
     i
 }
 
 #[inline]
-pub fn cornerx4y4z4(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx4y8z4_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x + 1,
