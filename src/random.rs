@@ -73,7 +73,6 @@ pub trait Random {
 }
 
 impl CheckedRandom {
-
     //const SEED_MASK: u64 = (1u64 << 48) - 1;
     const MULTIPLIER: i64 = 25214903917;
     const SEED_MASK: i64 = 281474976710655;
@@ -92,12 +91,15 @@ impl CheckedRandom {
         self.seed = (s ^ Self::MULTIPLIER) & Self::SEED_MASK;
         self.gaussian.reset();
     }
-
 }
 
 impl Random for CheckedRandom {
     fn next(&mut self, bits: i32) -> i32 {
-        self.seed = (self.seed.wrapping_mul(Self::MULTIPLIER).wrapping_add(Self::INCREMENT)) & Self::SEED_MASK;
+        self.seed = (self
+            .seed
+            .wrapping_mul(Self::MULTIPLIER)
+            .wrapping_add(Self::INCREMENT))
+            & Self::SEED_MASK;
         (self.seed >> (48 - bits)) as i32
     }
 
@@ -169,11 +171,13 @@ impl RandomSplitter {
         CheckedRandom::new(seed)
     }
 
-
     fn hash_code(x: i32, y: i32, z: i32) -> i64 {
         let mut h: i64 = (x as i64).wrapping_mul(3129871) ^ (z as i64).wrapping_mul(116129781);
         h ^= y as i64;
-        h = h.wrapping_mul(h).wrapping_mul(42317861).wrapping_add(h.wrapping_mul(11));
+        h = h
+            .wrapping_mul(h)
+            .wrapping_mul(42317861)
+            .wrapping_add(h.wrapping_mul(11));
         h >> 16
     }
 }
@@ -186,7 +190,7 @@ private static int hashCode(int result, byte[] a, int fromIndex, int length) {
         }
         return result;
     }
-    
+
      */
 pub fn java_str_hash_code(s: &str) -> i32 {
     let mut h: i32 = 0;

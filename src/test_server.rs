@@ -5,7 +5,7 @@ use crate::utils::make_permutation_table;
 
 use crate::mathf64::{Pos3, Vec3, as_index};
 use crate::perlin::{create_perlin_noise_sampler, sample_perlin};
-use crate::utilsf64::{PerlinNoiseSampler, abs, clamp, fade, hermite, max, min, old_blended_noise};
+use crate::utilsf64::{PerlinNoiseSampler, abs, clamp, fade, hermite, max, min};
 use crate::xoroshiro::{
     Xoroshiro128PlusPlusRandom, XoroshiroSeed, create_xoroshiro_seed, create_xoroshiro_seed_str,
 };
@@ -248,11 +248,10 @@ fn dispatch(line: &str) -> String {
     match name {
         "ping" => "OK pong".into(),
 
-        "hermite" => with_args(args, 5, |a| {
-            let v = hermite(a[0], a[1], a[2], a[3], a[4]);
-            format!("OK {v:.10}")
-        }),
-
+        // "hermite" => with_args(args, 5, |a| {
+        //     let v = hermite(a[0], a[1], a[2], a[3], a[4]);
+        //     format!("OK {v:.10}")
+        // }),
         "fade" => with_args(args, 3, |a| {
             let r = fade(Vec3::new(a[0], a[1], a[2]));
             format!("OK {:.10} {:.10} {:.10}", r.x, r.y, r.z)
@@ -315,11 +314,6 @@ fn dispatch(line: &str) -> String {
             }
         }
 
-        "old_blended_noise" => with_args(args, 8, |a| {
-            let v = old_blended_noise(Vec3::new(a[0], a[1], a[2]), a[3], a[4], a[5], a[6], a[7]);
-            format!("OK {v:.10}")
-        }),
-
         // density_point <seed> <ox> <oy> <oz> <px> <py> <pz> <output_idx>
         "density_point" => with_seed_and_f64_args(args, 7, |seed, a| {
             let origin = Vec3::new(a[0], a[1], a[2]);
@@ -339,7 +333,7 @@ fn dispatch(line: &str) -> String {
             }
 
             let outputs = super::orchestration_seeded(seed, origin);
-            let idx = as_index(patch_pos, 16, 256) as usize;
+            let idx = as_index(patch_pos, 16, 256, 16) as usize;
 
             if idx >= 65536 {
                 return format!("ERR invalid patch position: {}", idx);
@@ -695,7 +689,7 @@ fn dispatch(line: &str) -> String {
                 y: py,
                 z: pz,
             };
-            let idx = as_index(patch_pos, 16, HEIGHT as i32) as usize;
+            let idx = as_index(patch_pos, 16, HEIGHT as i32, 16) as usize;
             if idx >= DIMS {
                 return format!("ERR invalid patch position: {idx}");
             }

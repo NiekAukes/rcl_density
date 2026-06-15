@@ -82,6 +82,7 @@ pub struct Pos3 {
 }
 
 impl Pos3 {
+    #[inline(always)]
     pub fn new(x: i32, y: i32, z: i32) -> Self {
         Self { x, y, z }
     }
@@ -89,6 +90,7 @@ impl Pos3 {
 
 impl std::ops::Mul<i32> for Pos3 {
     type Output = Self;
+    #[inline(always)]
     fn mul(self, scalar: i32) -> Pos3 {
         Pos3::new(self.x * scalar, self.y * scalar, self.z * scalar)
     }
@@ -96,6 +98,7 @@ impl std::ops::Mul<i32> for Pos3 {
 
 impl std::ops::Add for Pos3 {
     type Output = Self;
+    #[inline(always)]
     fn add(self, other: Pos3) -> Pos3 {
         Pos3::new(self.x + other.x, self.y + other.y, self.z + other.z)
     }
@@ -103,6 +106,7 @@ impl std::ops::Add for Pos3 {
 
 impl std::ops::Sub for Pos3 {
     type Output = Self;
+    #[inline(always)]
     fn sub(self, other: Pos3) -> Pos3 {
         Pos3::new(self.x - other.x, self.y - other.y, self.z - other.z)
     }
@@ -110,6 +114,7 @@ impl std::ops::Sub for Pos3 {
 
 impl std::ops::Mul for Pos3 {
     type Output = Self;
+    #[inline(always)]
     fn mul(self, other: Pos3) -> Pos3 {
         Pos3::new(self.x * other.x, self.y * other.y, self.z * other.z)
     }
@@ -117,6 +122,7 @@ impl std::ops::Mul for Pos3 {
 
 impl std::ops::Add<i32> for Pos3 {
     type Output = Self;
+    #[inline(always)]
     fn add(self, scalar: i32) -> Pos3 {
         Pos3::new(self.x + scalar, self.y + scalar, self.z + scalar)
     }
@@ -124,6 +130,7 @@ impl std::ops::Add<i32> for Pos3 {
 
 impl std::ops::Add<Pos3> for Vec3 {
     type Output = Self;
+    #[inline(always)]
     fn add(self, other: Pos3) -> Vec3 {
         Vec3::new(
             self.x + other.x as f64,
@@ -135,6 +142,7 @@ impl std::ops::Add<Pos3> for Vec3 {
 
 impl std::ops::Sub<Pos3> for Vec3 {
     type Output = Self;
+    #[inline(always)]
     fn sub(self, other: Pos3) -> Vec3 {
         Vec3::new(
             self.x - other.x as f64,
@@ -146,6 +154,7 @@ impl std::ops::Sub<Pos3> for Vec3 {
 
 impl std::ops::Mul<Pos3> for Vec3 {
     type Output = Self;
+    #[inline(always)]
     fn mul(self, other: Pos3) -> Vec3 {
         Vec3::new(
             self.x * other.x as f64,
@@ -157,6 +166,7 @@ impl std::ops::Mul<Pos3> for Vec3 {
 
 impl std::ops::Mul<Vec3> for Pos3 {
     type Output = Vec3;
+    #[inline(always)]
     fn mul(self, other: Vec3) -> Vec3 {
         Vec3::new(
             self.x as f64 * other.x,
@@ -167,12 +177,12 @@ impl std::ops::Mul<Vec3> for Pos3 {
 }
 
 #[inline(always)]
-pub fn as_index(pos: Pos3, size_x: i32, size_y: i32) -> usize {
+pub fn as_index(pos: Pos3, size_x: i32, size_y: i32, _size_z: i32) -> usize {
     (pos.z * size_y * size_x + pos.y * size_x + pos.x) as usize
 }
 
 #[inline(always)]
-pub fn flat_y_zero_index(pos: Pos3, size_x: i32, size_z: i32) -> usize {
+pub fn flat_y_zero_index(pos: Pos3, size_x: i32, _size_z: i32) -> usize {
     // the dimensions have been reduced to 2D by flattening the y dimension, so the index is just x + z * size_x
     (pos.z * size_x + pos.x) as usize
 }
@@ -183,11 +193,13 @@ pub fn flat_z_zero_index(pos: Pos3, size_x: i32, size_y: i32) -> usize {
     (pos.y * size_x + pos.x) as usize
 }
 
+#[inline(always)]
 pub fn pow(base: f64, exp: f64) -> f64 {
     base.powf(exp)
 }
 
 pub struct Iter3D {
+    idx: usize,
     x: i32,
     y: i32,
     z: i32,
@@ -196,14 +208,25 @@ pub struct Iter3D {
     pub mz: i32,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct PositionIterator {
+    pub pos: Pos3,
+    pub idx: usize,
+}
+
 impl Iterator for Iter3D {
-    type Item = Pos3;
-    fn next(&mut self) -> Option<Pos3> {
+    type Item = PositionIterator;
+    #[inline(always)]
+    fn next(&mut self) -> Option<PositionIterator> {
         if self.z >= self.mz {
             return None;
         }
-        let current = Pos3::new(self.x, self.y, self.z);
+        let current = PositionIterator {
+            pos: Pos3::new(self.x, self.y, self.z),
+            idx: self.idx,
+        };
         self.x += 1;
+        self.idx += 1;
         if self.x >= self.mx {
             self.x = 0;
             self.y += 1;
@@ -216,8 +239,28 @@ impl Iterator for Iter3D {
     }
 }
 
+impl ExactSizeIterator for Iter3D {
+    fn len(&self) -> usize {
+        (self.mx * self.my * self.mz) as usize
+    }
+}
+
+#[inline(always)]
+pub fn iter_usize(i: PositionIterator) -> usize {
+    i.idx
+}
+
+impl Into<Pos3> for PositionIterator {
+    #[inline(always)]
+    fn into(self) -> Pos3 {
+        self.pos
+    }
+}
+
+#[inline(always)]
 pub fn iter_3d(mx: i32, my: i32, mz: i32) -> Iter3D {
     Iter3D {
+        idx: 0,
         x: 0,
         y: 0,
         z: 0,
@@ -233,6 +276,11 @@ pub fn iter_3d(mx: i32, my: i32, mz: i32) -> Iter3D {
 
 #[inline]
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
+    a + t * (b - a)
+}
+
+#[inline]
+fn lerp_f32(t: f32, a: f32, b: f32) -> f32 {
     a + t * (b - a)
 }
 
@@ -274,92 +322,92 @@ fn base_grid(pos3: Pos3) -> Pos3 {
 }
 
 #[inline]
-pub fn cornerx0y0z0_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx0y0z0_8(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x,
         y: g.y,
         z: g.z,
     };
-    as_index(npos, sx, sy)
+    as_index(npos, sx, sy, sz)
 }
 
 #[inline]
-pub fn cornerx4y0z0_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx4y0z0_8(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x + 1,
         y: g.y,
         z: g.z,
     };
-    as_index(npos, sx, sy)
+    as_index(npos, sx, sy, sz)
 }
 
 #[inline]
-pub fn cornerx0y8z0_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx0y8z0_8(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x,
         y: g.y + 1,
         z: g.z,
     };
-    as_index(npos, sx, sy)
+    as_index(npos, sx, sy, sz)
 }
 
 #[inline]
-pub fn cornerx4y8z0_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx4y8z0_8(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x + 1,
         y: g.y + 1,
         z: g.z,
     };
-    as_index(npos, sx, sy)
+    as_index(npos, sx, sy, sz)
 }
 
 #[inline]
-pub fn cornerx0y0z4_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx0y0z4_8(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x,
         y: g.y,
         z: g.z + 1,
     };
-    as_index(npos, sx, sy)
+    as_index(npos, sx, sy, sz)
 }
 
 #[inline]
-pub fn cornerx4y0z4_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx4y0z4_8(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x + 1,
         y: g.y,
         z: g.z + 1,
     };
-    as_index(npos, sx, sy)
+    as_index(npos, sx, sy, sz)
 }
 
 #[inline]
-pub fn cornerx0y8z4_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx0y8z4_8(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x,
         y: g.y + 1,
         z: g.z + 1,
     };
-    let i = as_index(npos, sx, sy);
+    let i = as_index(npos, sx, sy, sz);
     i
 }
 
 #[inline]
-pub fn cornerx4y8z4_8(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx4y8z4_8(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid(pos3);
     let npos = Pos3 {
         x: g.x + 1,
         y: g.y + 1,
         z: g.z + 1,
     };
-    as_index(npos, sx, sy)
+    as_index(npos, sx, sy, sz)
 }
 
 #[inline]
@@ -396,7 +444,7 @@ fn base_grid_16(pos3: Pos3) -> Pos3 {
 }
 
 #[inline]
-pub fn cornerx0y0z0_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx0y0z0_16(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid_16(pos3);
     as_index(
         Pos3 {
@@ -406,11 +454,12 @@ pub fn cornerx0y0z0_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
         },
         sx,
         sy,
+        4,
     )
 }
 
 #[inline]
-pub fn cornerx4y0z0_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx4y0z0_16(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid_16(pos3);
     as_index(
         Pos3 {
@@ -420,11 +469,12 @@ pub fn cornerx4y0z0_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
         },
         sx,
         sy,
+        4,
     )
 }
 
 #[inline]
-pub fn cornerx0y16z0_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx0y16z0_16(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid_16(pos3);
     as_index(
         Pos3 {
@@ -434,11 +484,12 @@ pub fn cornerx0y16z0_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
         },
         sx,
         sy,
+        4,
     )
 }
 
 #[inline]
-pub fn cornerx4y16z0_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx4y16z0_16(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid_16(pos3);
     as_index(
         Pos3 {
@@ -448,11 +499,12 @@ pub fn cornerx4y16z0_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
         },
         sx,
         sy,
+        4,
     )
 }
 
 #[inline]
-pub fn cornerx0y0z4_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx0y0z4_16(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid_16(pos3);
     as_index(
         Pos3 {
@@ -462,11 +514,12 @@ pub fn cornerx0y0z4_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
         },
         sx,
         sy,
+        4,
     )
 }
 
 #[inline]
-pub fn cornerx4y0z4_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx4y0z4_16(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid_16(pos3);
     as_index(
         Pos3 {
@@ -476,11 +529,12 @@ pub fn cornerx4y0z4_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
         },
         sx,
         sy,
+        4,
     )
 }
 
 #[inline]
-pub fn cornerx0y16z4_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx0y16z4_16(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid_16(pos3);
     as_index(
         Pos3 {
@@ -490,11 +544,12 @@ pub fn cornerx0y16z4_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
         },
         sx,
         sy,
+        4,
     )
 }
 
 #[inline]
-pub fn cornerx4y16z4_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
+pub fn cornerx4y16z4_16(pos3: Pos3, sx: i32, sy: i32, sz: i32) -> usize {
     let g = base_grid_16(pos3);
     as_index(
         Pos3 {
@@ -504,6 +559,7 @@ pub fn cornerx4y16z4_16(pos3: Pos3, sx: i32, sy: i32) -> usize {
         },
         sx,
         sy,
+        sz,
     )
 }
 
@@ -514,5 +570,5 @@ pub fn biome_column_index(pos3: Pos3) -> usize {
         y: 0,
         z: pos3.z >> 2,
     };
-    flat_y_zero_index(npos, 4, 4)
+    flat_y_zero_index(npos, 5, 5)
 }

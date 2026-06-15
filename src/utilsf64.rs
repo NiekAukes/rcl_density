@@ -1,6 +1,7 @@
 use crate::orchestration::{PermutationTables, make_permutation_tables, orchestration};
-use crate::perlin::{create_perlin_noise_sampler, sample_perlin};
+use crate::perlin::{create_perlin_noise_sampler, sample_perlin, sample_perlin_scaled};
 use crate::random::Random;
+use crate::xoroshiro::{self, create_xoroshiro_seed_str};
 use crate::{
     mathf64::Vec3,
     xoroshiro::{Xoroshiro128PlusPlusRandom, create_xoroshiro_seed},
@@ -15,14 +16,46 @@ pub use crate::utils::PerlinNoiseSampler;
 pub use crate::utils::set_perlin_seed;
 
 // Helper noise / interpolation functions
-pub fn hermite(t: f64, p0: f64, p1: f64, m0: f64, m1: f64) -> f64 {
-    let t2 = t * t;
-    let t3 = t2 * t;
-    (2.0 * t3 - 3.0 * t2 + 1.0) * p0
-        + (t3 - 2.0 * t2 + t) * m0
-        + (-2.0 * t3 + 3.0 * t2) * p1
-        + (t3 - t2) * m1
+// pub fn hermite(t: f32, p0: f32, p1: f32, m0: f32, m1: f32) -> f32 {
+//     let t2 = t * t;
+//     let t3 = t2 * t;
+//     (2.0 * t3 - 3.0 * t2 + 1.0) * p0
+//         + (t3 - 2.0 * t2 + t) * m0
+//         + (-2.0 * t3 + 3.0 * t2) * p1
+//         + (t3 - t2) * m1
+// }
+
+pub fn hermite(t: f32, p0: f32, p1: f32, m0: f32, m1: f32, h_minus_g: f32) -> f32 {
+    // 1. Compute intermediate tangents matching Minecraft's:
+    // float p = l * (h - g) - (o - n);
+    // float q = -m * (h - g) + (o - n);
+    let p = (m0 * h_minus_g) - (p1 - p0);
+    let q = (-m1 * h_minus_g) + (p1 - p0);
+
+    // 2. Perform localized 32-bit linear interpolations
+    let lerp1 = p0 + t * (p1 - p0);
+    let lerp2 = p + t * (q - p);
+
+    // 3. Enforce left-to-right evaluation grouping via parentheses
+    lerp1 + ((t * (1.0_f32 - t)) * lerp2)
 }
+
+// pub fn advanced_hermite(
+//     first_value: f32,
+//     first_derivative: f32,
+//     second_value: f32,
+//     second_derivative: f32,
+// ) -> f32 {
+//     let h_minus_g = second_value - first_value;
+//     hermite(
+//         t,
+//         first_value,
+//         second_value,
+//         first_derivative,
+//         second_derivative,
+//         h_minus_g,
+//     )
+// }
 
 pub fn fade(t: Vec3) -> Vec3 {
     Vec3::new(
@@ -55,8 +88,9 @@ pub fn clamp(x: f64, min: f64, max: f64) -> f64 {
 pub fn make_buffer<const C: usize>() -> Box<[f64; C]> {
     // make a buffer of size C
     // without initialising it (to avoid the cost of zeroing it out, and having large arrays on the stack)
-    let buffer: Box<[f64; C]> = unsafe { Box::new(std::mem::MaybeUninit::uninit().assume_init()) };
-    buffer
+    //let buffer: Box<[f64; C]> = unsafe { Box::new(std::mem::MaybeUninit::uninit().assume_init()) };
+    let buffer = Box::new_uninit();
+    unsafe { buffer.assume_init() }
 }
 
 pub fn make_permutation_table(
@@ -225,15 +259,599 @@ fn perlin_reference(p: Vec3) -> f64 {
         ),
     )
 }
-pub fn old_blended_noise(
+// pub fn old_blended_noise(
+//     p: Vec3,
+//     xz_scale: f64,
+//     y_scale: f64,
+//     xz_factor: f64,
+//     y_factor: f64,
+//     smear_scale_multiplier: f64,
+// ) -> f64 {
+//     let sampler = crate::old_blended_noise::InterpolatedNoiseSampler::create_base3d(
+//         xz_scale,
+//         y_scale,
+//         xz_factor,
+//         y_factor,
+//         smear_scale_multiplier,
+//     );
+//     sampler.sample(p.x, p.y, p.z)
+// }
+
+/*
+package net.minecraft.util.math.noise;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+import java.util.Locale;
+import java.util.stream.IntStream;
+import net.minecraft.util.dynamic.CodecHolder;
+import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.random.Random;
+import net.minecraft.util.math.random.Xoroshiro128PlusPlusRandom;
+import net.minecraft.world.gen.densityfunction.DensityFunction;
+
+public class InterpolatedNoiseSampler implements DensityFunction.Base {
+    private static final Codec<Double> SCALE_AND_FACTOR_RANGE = Codec.doubleRange(0.001, 1000.0);
+    private static final MapCodec<InterpolatedNoiseSampler> MAP_CODEC = RecordCodecBuilder.mapCodec(
+        instance -> instance.group(
+                SCALE_AND_FACTOR_RANGE.fieldOf("xz_scale").forGetter(interpolatedNoiseSampler -> interpolatedNoiseSampler.xzScale),
+                SCALE_AND_FACTOR_RANGE.fieldOf("y_scale").forGetter(interpolatedNoiseSampler -> interpolatedNoiseSampler.yScale),
+                SCALE_AND_FACTOR_RANGE.fieldOf("xz_factor").forGetter(interpolatedNoiseSampler -> interpolatedNoiseSampler.xzFactor),
+                SCALE_AND_FACTOR_RANGE.fieldOf("y_factor").forGetter(interpolatedNoiseSampler -> interpolatedNoiseSampler.yFactor),
+                Codec.doubleRange(1.0, 8.0).fieldOf("smear_scale_multiplier").forGetter(interpolatedNoiseSampler -> interpolatedNoiseSampler.smearScaleMultiplier)
+            )
+            .apply(instance, InterpolatedNoiseSampler::createBase3dNoiseFunction)
+    );
+    public static final CodecHolder<InterpolatedNoiseSampler> CODEC = CodecHolder.of(MAP_CODEC);
+    private final OctavePerlinNoiseSampler lowerInterpolatedNoise;
+    private final OctavePerlinNoiseSampler upperInterpolatedNoise;
+    private final OctavePerlinNoiseSampler interpolationNoise;
+    private final double scaledXzScale;
+    private final double scaledYScale;
+    private final double xzFactor;
+    private final double yFactor;
+    private final double smearScaleMultiplier;
+    private final double maxValue;
+    private final double xzScale;
+    private final double yScale;
+
+    public static InterpolatedNoiseSampler createBase3dNoiseFunction(double xzScale, double yScale, double xzFactor, double yFactor, double smearScaleMultiplier) {
+        return new InterpolatedNoiseSampler(new Xoroshiro128PlusPlusRandom(0L), xzScale, yScale, xzFactor, yFactor, smearScaleMultiplier);
+    }
+
+    private InterpolatedNoiseSampler(
+        OctavePerlinNoiseSampler lowerInterpolatedNoise,
+        OctavePerlinNoiseSampler upperInterpolatedNoise,
+        OctavePerlinNoiseSampler interpolationNoise,
+        double xzScale,
+        double yScale,
+        double xzFactor,
+        double yFactor,
+        double smearScaleMultiplier
+    ) {
+        this.lowerInterpolatedNoise = lowerInterpolatedNoise;
+        this.upperInterpolatedNoise = upperInterpolatedNoise;
+        this.interpolationNoise = interpolationNoise;
+        this.xzScale = xzScale;
+        this.yScale = yScale;
+        this.xzFactor = xzFactor;
+        this.yFactor = yFactor;
+        this.smearScaleMultiplier = smearScaleMultiplier;
+        this.scaledXzScale = 684.412 * this.xzScale;
+        this.scaledYScale = 684.412 * this.yScale;
+        this.maxValue = lowerInterpolatedNoise.method_40556(this.scaledYScale);
+    }
+
+    @VisibleForTesting
+    public InterpolatedNoiseSampler(Random random, double xzScale, double yScale, double xzFactor, double yFactor, double smearScaleMultiplier) {
+        this(
+            OctavePerlinNoiseSampler.createLegacy(random, IntStream.rangeClosed(-15, 0)),
+            OctavePerlinNoiseSampler.createLegacy(random, IntStream.rangeClosed(-15, 0)),
+            OctavePerlinNoiseSampler.createLegacy(random, IntStream.rangeClosed(-7, 0)),
+            xzScale,
+            yScale,
+            xzFactor,
+            yFactor,
+            smearScaleMultiplier
+        );
+    }
+
+    public InterpolatedNoiseSampler copyWithRandom(Random random) {
+        return new InterpolatedNoiseSampler(random, this.xzScale, this.yScale, this.xzFactor, this.yFactor, this.smearScaleMultiplier);
+    }
+
+    @Override
+    public double sample(DensityFunction.NoisePos pos) {
+        double d = pos.blockX() * this.scaledXzScale;
+        double e = pos.blockY() * this.scaledYScale;
+        double f = pos.blockZ() * this.scaledXzScale;
+        double g = d / this.xzFactor;
+        double h = e / this.yFactor;
+        double i = f / this.xzFactor;
+        double j = this.scaledYScale * this.smearScaleMultiplier;
+        double k = j / this.yFactor;
+        double l = 0.0;
+        double m = 0.0;
+        double n = 0.0;
+        boolean bl = true;
+        double o = 1.0;
+
+        for (int p = 0; p < 8; p++) {
+            PerlinNoiseSampler perlinNoiseSampler = this.interpolationNoise.getOctave(p);
+            if (perlinNoiseSampler != null) {
+                n += perlinNoiseSampler.sample(
+                        OctavePerlinNoiseSampler.maintainPrecision(g * o),
+                        OctavePerlinNoiseSampler.maintainPrecision(h * o),
+                        OctavePerlinNoiseSampler.maintainPrecision(i * o),
+                        k * o,
+                        h * o
+                    )
+                    / o;
+            }
+
+            o /= 2.0;
+        }
+
+        double q = (n / 10.0 + 1.0) / 2.0;
+        boolean bl2 = q >= 1.0;
+        boolean bl3 = q <= 0.0;
+        o = 1.0;
+
+        for (int r = 0; r < 16; r++) {
+            double s = OctavePerlinNoiseSampler.maintainPrecision(d * o);
+            double t = OctavePerlinNoiseSampler.maintainPrecision(e * o);
+            double u = OctavePerlinNoiseSampler.maintainPrecision(f * o);
+            double v = j * o;
+            if (!bl2) {
+                PerlinNoiseSampler perlinNoiseSampler2 = this.lowerInterpolatedNoise.getOctave(r);
+                if (perlinNoiseSampler2 != null) {
+                    l += perlinNoiseSampler2.sample(s, t, u, v, e * o) / o;
+                }
+            }
+
+            if (!bl3) {
+                PerlinNoiseSampler perlinNoiseSampler2 = this.upperInterpolatedNoise.getOctave(r);
+                if (perlinNoiseSampler2 != null) {
+                    m += perlinNoiseSampler2.sample(s, t, u, v, e * o) / o;
+                }
+            }
+
+            o /= 2.0;
+        }
+
+        return MathHelper.clampedLerp(l / 512.0, m / 512.0, q) / 128.0;
+    }
+
+    @Override
+    public double minValue() {
+        return -this.maxValue();
+    }
+
+    @Override
+    public double maxValue() {
+        return this.maxValue;
+    }
+
+    @VisibleForTesting
+    public void addDebugInfo(StringBuilder info) {
+        info.append("BlendedNoise{minLimitNoise=");
+        this.lowerInterpolatedNoise.addDebugInfo(info);
+        info.append(", maxLimitNoise=");
+        this.upperInterpolatedNoise.addDebugInfo(info);
+        info.append(", mainNoise=");
+        this.interpolationNoise.addDebugInfo(info);
+        info.append(
+                String.format(
+                    Locale.ROOT,
+                    ", xzScale=%.3f, yScale=%.3f, xzMainScale=%.3f, yMainScale=%.3f, cellWidth=4, cellHeight=8",
+                    684.412,
+                    684.412,
+                    8.555150000000001,
+                    4.277575000000001
+                )
+            )
+            .append('}');
+    }
+
+    @Override
+    public CodecHolder<? extends DensityFunction> getCodecHolder() {
+        return CODEC;
+    }
+}
+
+
+
+
+
+public class OctavePerlinNoiseSampler {
+    private static final int field_31704 = 33554432;
+    private final PerlinNoiseSampler[] octaveSamplers;
+    private final int firstOctave;
+    private final DoubleList amplitudes;
+    private final double persistence;
+    private final double lacunarity;
+    private final double maxValue;
+
+    @Deprecated
+    public static OctavePerlinNoiseSampler createLegacy(Random random, IntStream octaves) {
+        return new OctavePerlinNoiseSampler(
+            random, calculateAmplitudes(new IntRBTreeSet((Collection<? extends Integer>)octaves.boxed().collect(ImmutableList.toImmutableList()))), false
+        );
+    }
+
+    @Deprecated
+    public static OctavePerlinNoiseSampler createLegacy(Random random, int offset, DoubleList amplitudes) {
+        return new OctavePerlinNoiseSampler(random, Pair.of(offset, amplitudes), false);
+    }
+
+    public static OctavePerlinNoiseSampler create(Random random, IntStream octaves) {
+        return create(random, (List<Integer>)octaves.boxed().collect(ImmutableList.toImmutableList()));
+    }
+
+    public static OctavePerlinNoiseSampler create(Random random, List<Integer> octaves) {
+        return new OctavePerlinNoiseSampler(random, calculateAmplitudes(new IntRBTreeSet(octaves)), true);
+    }
+
+    public static OctavePerlinNoiseSampler create(Random random, int offset, double firstAmplitude, double... amplitudes) {
+        DoubleArrayList doubleArrayList = new DoubleArrayList(amplitudes);
+        doubleArrayList.add(0, firstAmplitude);
+        return new OctavePerlinNoiseSampler(random, Pair.of(offset, doubleArrayList), true);
+    }
+
+    public static OctavePerlinNoiseSampler create(Random random, int offset, DoubleList amplitudes) {
+        return new OctavePerlinNoiseSampler(random, Pair.of(offset, amplitudes), true);
+    }
+
+    private static Pair<Integer, DoubleList> calculateAmplitudes(IntSortedSet octaves) {
+        if (octaves.isEmpty()) {
+            throw new IllegalArgumentException("Need some octaves!");
+        } else {
+            int i = -octaves.firstInt();
+            int j = octaves.lastInt();
+            int k = i + j + 1;
+            if (k < 1) {
+                throw new IllegalArgumentException("Total number of octaves needs to be >= 1");
+            } else {
+                DoubleList doubleList = new DoubleArrayList(new double[k]);
+                IntBidirectionalIterator intBidirectionalIterator = octaves.iterator();
+
+                while (intBidirectionalIterator.hasNext()) {
+                    int l = intBidirectionalIterator.nextInt();
+                    doubleList.set(l + i, 1.0);
+                }
+
+                return Pair.of(-i, doubleList);
+            }
+        }
+    }
+
+    protected OctavePerlinNoiseSampler(Random random, Pair<Integer, DoubleList> firstOctaveAndAmplitudes, boolean xoroshiro) {
+        this.firstOctave = firstOctaveAndAmplitudes.getFirst();
+        this.amplitudes = firstOctaveAndAmplitudes.getSecond();
+        int i = this.amplitudes.size();
+        int j = -this.firstOctave;
+        this.octaveSamplers = new PerlinNoiseSampler[i];
+        if (xoroshiro) {
+            RandomSplitter randomSplitter = random.nextSplitter();
+
+            for (int k = 0; k < i; k++) {
+                if (this.amplitudes.getDouble(k) != 0.0) {
+                    int l = this.firstOctave + k;
+                    this.octaveSamplers[k] = new PerlinNoiseSampler(randomSplitter.split("octave_" + l));
+                }
+            }
+        } else {
+            PerlinNoiseSampler perlinNoiseSampler = new PerlinNoiseSampler(random);
+            if (j >= 0 && j < i) {
+                double d = this.amplitudes.getDouble(j);
+                if (d != 0.0) {
+                    this.octaveSamplers[j] = perlinNoiseSampler;
+                }
+            }
+
+            for (int kx = j - 1; kx >= 0; kx--) {
+                if (kx < i) {
+                    double e = this.amplitudes.getDouble(kx);
+                    if (e != 0.0) {
+                        this.octaveSamplers[kx] = new PerlinNoiseSampler(random);
+                    } else {
+                        skipCalls(random);
+                    }
+                } else {
+                    skipCalls(random);
+                }
+            }
+
+            if (Arrays.stream(this.octaveSamplers).filter(Objects::nonNull).count() != this.amplitudes.stream().filter(amplitude -> amplitude != 0.0).count()) {
+                throw new IllegalStateException("Failed to create correct number of noise levels for given non-zero amplitudes");
+            }
+
+            if (j < i - 1) {
+                throw new IllegalArgumentException("Positive octaves are temporarily disabled");
+            }
+        }
+
+        this.lacunarity = Math.pow(2.0, -j);
+        this.persistence = Math.pow(2.0, i - 1) / (Math.pow(2.0, i) - 1.0);
+        this.maxValue = this.getTotalAmplitude(2.0);
+    }
+
+    protected double getMaxValue() {
+        return this.maxValue;
+    }
+
+    private static void skipCalls(Random random) {
+        random.skip(262);
+    }
+
+    public double sample(double x, double y, double z) {
+        return this.sample(x, y, z, 0.0, 0.0, false);
+    }
+
+    @Deprecated
+    public double sample(double x, double y, double z, double yScale, double yMax, boolean useOrigin) {
+        double d = 0.0;
+        double e = this.lacunarity;
+        double f = this.persistence;
+
+        for (int i = 0; i < this.octaveSamplers.length; i++) {
+            PerlinNoiseSampler perlinNoiseSampler = this.octaveSamplers[i];
+            if (perlinNoiseSampler != null) {
+                double g = perlinNoiseSampler.sample(
+                    maintainPrecision(x * e), useOrigin ? -perlinNoiseSampler.originY : maintainPrecision(y * e), maintainPrecision(z * e), yScale * e, yMax * e
+                );
+                d += this.amplitudes.getDouble(i) * g * f;
+            }
+
+            e *= 2.0;
+            f /= 2.0;
+        }
+
+        return d;
+    }
+
+    public double method_40556(double d) {
+        return this.getTotalAmplitude(d + 2.0);
+    }
+
+    private double getTotalAmplitude(double scale) {
+        double d = 0.0;
+        double e = this.persistence;
+
+        for (int i = 0; i < this.octaveSamplers.length; i++) {
+            PerlinNoiseSampler perlinNoiseSampler = this.octaveSamplers[i];
+            if (perlinNoiseSampler != null) {
+                d += this.amplitudes.getDouble(i) * scale * e;
+            }
+
+            e /= 2.0;
+        }
+
+        return d;
+    }
+
+    @Nullable
+    public PerlinNoiseSampler getOctave(int octave) {
+        return this.octaveSamplers[this.octaveSamplers.length - 1 - octave];
+    }
+
+    public static double maintainPrecision(double value) {
+        return value - MathHelper.lfloor(value / 3.3554432E7 + 0.5) * 3.3554432E7;
+    }
+
+    protected int getFirstOctave() {
+        return this.firstOctave;
+    }
+
+    protected DoubleList getAmplitudes() {
+        return this.amplitudes;
+    }
+
+    @VisibleForTesting
+    public void addDebugInfo(StringBuilder info) {
+        info.append("PerlinNoise{");
+        List<String> list = this.amplitudes.stream().map(double_ -> String.format(Locale.ROOT, "%.2f", double_)).toList();
+        info.append("first octave: ").append(this.firstOctave).append(", amplitudes: ").append(list).append(", noise levels: [");
+
+        for (int i = 0; i < this.octaveSamplers.length; i++) {
+            info.append(i).append(": ");
+            PerlinNoiseSampler perlinNoiseSampler = this.octaveSamplers[i];
+            if (perlinNoiseSampler == null) {
+                info.append("null");
+            } else {
+                perlinNoiseSampler.addDebugInfo(info);
+            }
+
+            info.append(", ");
+        }
+
+        info.append("]");
+        info.append("}");
+    }
+}
+
+
+*/
+
+/// Equivalent to `OctavePerlinNoiseSampler.createLegacy(random, IntStream.rangeClosed(-n, 0))`.
+/// All amplitudes are 1.0 so every octave slot is filled.
+/// Creation order matches Java: index `n-1` first, then `n-2` down to `0`.
+pub fn create_legacy<const NUM: usize>(
+    rng: &mut Xoroshiro128PlusPlusRandom,
+    samplers: &mut [PerlinNoiseSampler; NUM],
+) {
+    if NUM == 0 {
+        return;
+    }
+
+    let j = NUM - 1; // Represents -firstOctave where firstOctave is e.g. -15
+
+    // In Java:
+    // PerlinNoiseSampler perlinNoiseSampler = new PerlinNoiseSampler(random);
+    // this.octaveSamplers[j] = perlinNoiseSampler;
+
+    // Note: If `samplers` was created via `assume_init()` on uninitialized memory,
+    // and `PerlinNoiseSampler` implements `Drop`, standard assignment will attempt
+    // to drop garbage data and cause UB. Use `std::ptr::write` to be safe.
+    unsafe {
+        std::ptr::write(&mut samplers[j], create_perlin_noise_sampler(rng));
+    }
+
+    // In Java:
+    // for (int kx = j - 1; kx >= 0; kx--) { ... }
+    for kx in (0..j).rev() {
+        unsafe {
+            std::ptr::write(&mut samplers[kx], create_perlin_noise_sampler(rng));
+        }
+    }
+}
+
+/// Port of `InterpolatedNoiseSampler`
+pub struct InterpolatedNoiseSampler {
+    pub lower: [PerlinNoiseSampler; 16], // rangeClosed(-15, 0)
+    pub upper: [PerlinNoiseSampler; 16], // rangeClosed(-15, 0)
+    pub interpolation: [PerlinNoiseSampler; 8], // rangeClosed(-7, 0)
+                                         // scaled_xz_scale: f64,
+                                         // scaled_y_scale: f64,
+                                         // xz_factor: f64,
+                                         // y_factor: f64,
+                                         // smear_scale_multiplier: f64,
+}
+
+impl InterpolatedNoiseSampler {
+    /// Equivalent to `new InterpolatedNoiseSampler(random, xzScale, yScale, xzFactor, yFactor, smearScaleMultiplier)`.
+    pub fn new_boxed(
+        rng: &mut Xoroshiro128PlusPlusRandom,
+        // xz_scale: f64,
+        // y_scale: f64,
+        // xz_factor: f64,
+        // y_factor: f64,
+        // smear_scale_multiplier: f64,
+    ) -> Box<InterpolatedNoiseSampler> {
+        // let lower = OctavePerlinNoiseSampler::create_legacy(rng, 16); // rangeClosed(-15, 0)
+        // let upper = OctavePerlinNoiseSampler::create_legacy(rng, 16);
+        // let interpolation = OctavePerlinNoiseSampler::create_legacy(rng, 8); // rangeClosed(-7, 0)
+
+        // allocate empty uninitialized data for the samplers, then fill it in-place to avoid stack overflow from large arrays
+        let mut base: Box<InterpolatedNoiseSampler> = unsafe { Box::new_uninit().assume_init() };
+        // InterpolatedNoiseSampler {
+        //     lower,
+        //     upper,
+        //     interpolation,
+        //     scaled_xz_scale: 684.412 * xz_scale,
+        //     scaled_y_scale: 684.412 * y_scale,
+        //     xz_factor,
+        //     y_factor,
+        //     smear_scale_multiplier,
+        // }
+        create_legacy(rng, &mut base.lower);
+        create_legacy(rng, &mut base.upper);
+        create_legacy(rng, &mut base.interpolation);
+        // base.scaled_xz_scale = 684.412 * xz_scale;
+        // base.scaled_y_scale = 684.412 * y_scale;
+        // base.xz_factor = xz_factor;
+        // base.y_factor = y_factor;
+        // base.smear_scale_multiplier = smear_scale_multiplier;
+
+        return base;
+    }
+
+    /// Equivalent to `new InterpolatedNoiseSampler(new Xoroshiro128PlusPlusRandom(0L), ...)`.
+    pub fn create_base3d(seed: i64) -> Box<InterpolatedNoiseSampler> {
+        let mut rng = Xoroshiro128PlusPlusRandom::from_seed(&create_xoroshiro_seed(seed));
+        let mut random_splitter = rng.next_splitter();
+
+        let xoroshiro_seed = create_xoroshiro_seed_str("minecraft:terrain");
+        let mut rng = random_splitter.split(xoroshiro_seed.seed_lo, xoroshiro_seed.seed_hi);
+        Self::new_boxed(&mut rng)
+    }
+}
+
+pub fn make_base3d_perm_table(seed: i64) -> Box<InterpolatedNoiseSampler> {
+    InterpolatedNoiseSampler::create_base3d(seed)
+}
+
+const BASE_3D_XZ_SCALE: f64 = 684.412;
+
+#[inline(always)]
+pub fn base3d_noise(
     p: Vec3,
-    xz_scale: f64,
-    y_scale: f64,
-    xz_factor: f64,
-    y_factor: f64,
+    sampler: &InterpolatedNoiseSampler,
     smear_scale_multiplier: f64,
+    xz_factor: f64,
+    scaled_xz_scale: f64,
+    y_factor: f64,
+    scaled_y_scale: f64,
 ) -> f64 {
-    0.0
+    let x = p.x;
+    let y = p.y;
+    let z = p.z;
+    let d = x * scaled_xz_scale * BASE_3D_XZ_SCALE;
+    let e = y * scaled_y_scale * BASE_3D_XZ_SCALE;
+    let f = z * scaled_xz_scale * BASE_3D_XZ_SCALE;
+
+    let g = d / xz_factor;
+    let h = e / y_factor;
+    let iz = f / xz_factor;
+    let j = scaled_y_scale * BASE_3D_XZ_SCALE * smear_scale_multiplier;
+    let k = j / y_factor;
+
+    let mut l = 0.0_f64;
+    let mut m = 0.0_f64;
+    let mut n = 0.0_f64;
+    let mut o = 1.0_f64;
+    let mut inv_o = 1.0_f64;
+
+    for p in (0..8).rev() {
+        n += sample_perlin_scaled(
+            &sampler.interpolation[p],
+            maintain_precision(g * o),
+            maintain_precision(h * o),
+            maintain_precision(iz * o),
+            k * o,
+            h * o,
+        ) * inv_o;
+        o *= 0.5;
+        inv_o *= 2.0;
+    }
+
+    let q = (n * 0.1 + 1.0) * 0.5;
+    let bl2 = q >= 1.0;
+    let bl3 = q <= 0.0;
+    o = 1.0;
+
+    for r in (0..16).rev() {
+        let s = maintain_precision(d * o);
+        let t = maintain_precision(e * o);
+        let u = maintain_precision(f * o);
+        let v = j * o;
+
+        if !bl2 {
+            l += sample_perlin_scaled(&sampler.lower[r], s, t, u, v, e * o) / o;
+        }
+        if !bl3 {
+            m += sample_perlin_scaled(&sampler.upper[r], s, t, u, v, e * o) / o;
+        }
+
+        o *= 0.5;
+    }
+
+    clamped_lerp(l * 0.001953125, m * 0.001953125, q) * 0.0078125
+}
+
+/// Port of `OctavePerlinNoiseSampler.maintainPrecision`.
+#[inline(always)]
+fn maintain_precision(value: f64) -> f64 {
+    value - (value / 3.3554432e7 + 0.5).floor() * 3.3554432e7
+}
+
+/// Port of `MathHelper.clampedLerp(start, end, delta)`.
+#[inline(always)]
+fn clamped_lerp(start: f64, end: f64, delta: f64) -> f64 {
+    let d = delta.clamp(0.0, 1.0);
+    start + d * (end - start)
 }
 
 /// Computes the Y clamped gradient, equivalent to Minecraft's:
@@ -300,3 +918,127 @@ pub fn scale_caves(value: f64) -> f64 {
         3.0
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+pub struct DecisionTreeNode {
+    pub next_coord: i32,
+    pub next_decision_index: i32,
+    pub location: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SplineValue {
+    pub value: f32,
+    pub derivative: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AdvancedHermiteCall {
+    pub coordinate: f32,
+    pub first_location: f32,
+    pub second_location: f32,
+    pub p0_mem: u16,
+    pub p1_mem: u16,
+    pub out_mem: u16,
+}
+
+/*
+let mut rpos3: Vec3;
+    let mut decision_idx_0: i32;
+    let mut second_value_1: f32;
+    let mut first_derivative_2: f32;
+    let mut second_derivative_3: f32;
+    let mut first_value_4: f32;
+    let mut coord_5: f32;
+    let mut coord_6: f32;
+    let mut coordinate_7: f32;
+    let mut coordinates_8: [f32; 2];
+    let mut current_decision_9: DecisionTreeNode;
+    let mut location_10: f32;
+    let mut spline_result_11: f64;
+    rpos3 = ((origin * origin_scale) + (pos3 * position_scale));
+    decision_idx_0 = 1_i32;
+    coord_5 = (input_126219625388992[as_index(pos3, 5_i32, 1_i32) as usize] as f32);
+    coord_6 = (input_126219625377776[as_index(pos3, 5_i32, 1_i32) as usize] as f32);
+    coordinate_7 = coord_5;
+    coordinates_8 = [coord_5, coord_6];
+    {
+        let mut repeat_counter: i32 = 0_i32;
+        while (repeat_counter < 5_i32) {
+            current_decision_9 = minecraft_realism_extreme_mountains_jagged_adjusted_decision_tree_126219625380968[decision_idx_0 as usize];
+            decision_idx_0 = ((current_decision_9.next_decision_index * ((coord_5 < current_decision_9.location) as i32)) + ((decision_idx_0 + 1_i32) * ((coord_5 >= current_decision_9.location) as i32)));
+            location_10 = current_decision_9.location;
+            if ((coord_5 < location_10) && (decision_idx_0 >= 11_i32)) {
+                break;
+            }
+            coordinate_7 = coordinates_8[current_decision_9.next_coord as usize];
+            repeat_counter = (repeat_counter + 1_i32);
+        }
+    }
+    second_value_1 = minecraft_realism_extreme_mountains_jagged_adjusted_values_126219625380912[(decision_idx_0 - 11_i32) as usize].value;
+    first_value_4 = minecraft_realism_extreme_mountains_jagged_adjusted_values_126219625380912[(decision_idx_0 - 12_i32) as usize].value;
+    first_derivative_2 = minecraft_realism_extreme_mountains_jagged_adjusted_values_126219625380912[(decision_idx_0 - 11_i32) as usize].derivative;
+    second_derivative_3 = minecraft_realism_extreme_mountains_jagged_adjusted_values_126219625380912[(decision_idx_0 - 12_i32) as usize].derivative;
+    spline_result_11 = advanced_hermite((first_value_4 as f32), (second_value_1 as f32), (first_derivative_2 as f32), (second_derivative_3 as f32));
+    return spline_result_11;
+*/
+
+// struct BacklogItem {
+//     decision_index: i32,
+//     coordinate: f32,
+//     hermite_idx: u16,
+// }
+
+// pub fn spline_vm_inner(
+//     decision_tree: *const DecisionTreeNode,
+//     spline_values: *const SplineValue,
+//     coords: *const f32,
+//     max_values: i32,
+//     max_decisions: i32,
+// ) -> f32 {
+//     let mut current_decision_index: usize = 1;
+//     let mut coordinate: f32 = unsafe { *coords };
+//     let mut hermite_mem: [f32; 63] = [0.0; 63];
+
+//     let mut hermite_execution_stack: [AdvancedHermiteCall; 63] = [AdvancedHermiteCall {
+//         coordinate: 0.0,
+//         first_location: 0.0,
+//         second_location: 0.0,
+//         idx: 0,
+//     }; 63];
+//     let mut hermite_execution_stack_head: usize = 0;
+//     let mut backlog: [BacklogItem; 63] = [BacklogItem {
+//         decision_index: 0,
+//         coordinate: 0.0,
+//         hermite_idx: 0,
+//     }; 63];
+//     let mut backlog_ringhead: usize = 0;
+//     for i in 0..max_values {
+//         let min_decision = unsafe { *decision_tree.add(current_decision_index - 1) };
+//         let current_decision = unsafe { *decision_tree.add(current_decision_index) };
+//         if coordinate < current_decision.location {
+//             current_decision_index = current_decision.next_decision_index as usize;
+//             let min_one_decision_index = min_decision.next_decision_index as usize;
+//             // add hermite execution to stack
+//             hermite_execution_stack[hermite_execution_stack_head] = AdvancedHermiteCall {
+//                 coordinate,
+//                 first_location: min_decision.location,
+//                 second_location: current_decision.location,
+//                 p0_mem: hermite_mem_head as u16,
+//                 p1_mem: hermite_mem_head as u16 + 2,
+//             };
+//             let val_index_1 = current_decision_index - max_decisions as usize;
+//             let val_index_2 = min_one_decision_index - max_decisions as usize;
+//             if val_index_1 > 0 {
+//                 hermite_mem[hermite_mem_head] = unsafe { (*spline_values.add(val_index_1)).value };
+//                 hermite_mem[hermite_mem_head + 1] = unsafe { (*spline_values.add(val_index_1)).derivative };
+//             } else {
+//             }
+
+//         } else {
+//             current_decision_index + 1
+//         };
+//     }
+
+//     todo!()
+// }

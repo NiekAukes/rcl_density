@@ -29,8 +29,8 @@ impl XoroshiroSeed {
     /// XOR both halves with the provided pair — port of XoroshiroSeed.split(long, long)
     pub fn split_with(&self, lo: i64, hi: i64) -> Self {
         Self {
-            seed_lo: self.seed_lo ^ lo,
-            seed_hi: self.seed_hi ^ hi,
+            seed_lo: lo ^ self.seed_lo,
+            seed_hi: hi ^ self.seed_hi,
         }
     }
 
