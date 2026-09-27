@@ -49,7 +49,7 @@ pub fn raw_perlin_noise_sampler(
 }
 
 // ------------------ Noise Sampling ------------------
-
+#[inline(always)]
 pub fn sample_perlin(pns: &PerlinNoiseSampler, mut x: f64, mut y: f64, mut z: f64) -> f64 {
     x += pns.origin_x;
     y += pns.origin_y;
@@ -94,7 +94,7 @@ pub fn sample_perlin_scaled(
 
     sample_perlin_section(pns, i, j, k, g, h - n, l, h)
 }
-
+#[inline(always)]
 pub fn sample_perlin_section(
     pns: &PerlinNoiseSampler,
     section_x: i32,
@@ -129,28 +129,28 @@ pub fn sample_perlin_section(
 }
 
 // ------------------ Helper Functions ------------------
-#[inline]
+#[inline(always)]
 pub fn floor_int(v: f64) -> i32 {
     let i = v as i32;
     if v < i as f64 { i - 1 } else { i }
 }
 
-#[inline]
+#[inline(always)]
 pub fn fade(t: f64) -> f64 {
     t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
 }
 
-#[inline]
+#[inline(always)]
 pub fn fade_derivative(t: f64) -> f64 {
     30.0 * t * t * (t * (t - 2.0) + 1.0)
 }
 
-#[inline]
+#[inline(always)]
 pub fn lerp(delta: f64, start: f64, end: f64) -> f64 {
     start + delta * (end - start)
 }
 
-#[inline]
+#[inline(always)]
 pub fn dot(g: [i32; 3], x: f64, y: f64, z: f64) -> f64 {
     g[0] as f64 * x + g[1] as f64 * y + g[2] as f64 * z
 }
@@ -175,17 +175,17 @@ pub const GRAD3: [[i32; 3]; 16] = [
     [0, -1, -1],
 ];
 
-#[inline]
+#[inline(always)]
 pub fn grad(hash: i32, x: f64, y: f64, z: f64) -> f64 {
     dot(GRAD3[(hash & 15) as usize], x, y, z)
 }
 
-#[inline]
+#[inline(always)]
 pub fn map(pns: &PerlinNoiseSampler, input: i32) -> i32 {
     pns.permutation[(input & 0xFF) as usize] as i32 & 0xFF
 }
 
-#[inline]
+#[inline(always)]
 pub fn lerp2(delta_x: f64, delta_y: f64, x0y0: f64, x1y0: f64, x0y1: f64, x1y1: f64) -> f64 {
     lerp(
         delta_y,
@@ -194,7 +194,7 @@ pub fn lerp2(delta_x: f64, delta_y: f64, x0y0: f64, x1y0: f64, x0y1: f64, x1y1: 
     )
 }
 
-#[inline]
+#[inline(always)]
 pub fn lerp3(
     delta_x: f64,
     delta_y: f64,

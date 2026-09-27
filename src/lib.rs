@@ -1,10 +1,10 @@
 #![allow(warnings)]
 
-mod density_function;
+pub mod density_function;
 pub mod math;
 pub mod mathf64;
 mod orchestration;
-pub mod perlin;
+pub mod perlin_noise;
 pub mod random;
 pub mod utils;
 pub mod utilsf64;

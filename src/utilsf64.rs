@@ -1,5 +1,7 @@
+use wgpu::naga::proc::index;
+
 use crate::orchestration::{PermutationTables, make_permutation_tables, orchestration};
-use crate::perlin::{create_perlin_noise_sampler, sample_perlin, sample_perlin_scaled};
+use crate::perlin_noise::{create_perlin_noise_sampler, sample_perlin, sample_perlin_scaled};
 use crate::random::Random;
 use crate::xoroshiro::{self, create_xoroshiro_seed_str};
 use crate::{
@@ -25,6 +27,7 @@ pub use crate::utils::set_perlin_seed;
 //         + (t3 - t2) * m1
 // }
 
+#[inline(always)]
 pub fn hermite(t: f32, p0: f32, p1: f32, m0: f32, m1: f32, h_minus_g: f32) -> f32 {
     // 1. Compute intermediate tangents matching Minecraft's:
     // float p = l * (h - g) - (o - n);
@@ -40,23 +43,50 @@ pub fn hermite(t: f32, p0: f32, p1: f32, m0: f32, m1: f32, h_minus_g: f32) -> f3
     lerp1 + ((t * (1.0_f32 - t)) * lerp2)
 }
 
-// pub fn advanced_hermite(
-//     first_value: f32,
-//     first_derivative: f32,
-//     second_value: f32,
-//     second_derivative: f32,
-// ) -> f32 {
-//     let h_minus_g = second_value - first_value;
-//     hermite(
-//         t,
-//         first_value,
-//         second_value,
-//         first_derivative,
-//         second_derivative,
-//         h_minus_g,
-//     )
-// }
+#[inline(always)]
+pub fn advanced_hermite<const N: usize>(
+    spline_locations: [f32; N],
+    spline_values: [f32; N],
+    spline_derivatives: [f32; N],
+    coordinate: f32,
+    index: i32,
+) -> f32 {
+    // let h_minus_g = second_value - first_value;
+    // hermite(
+    //     t,
+    //     first_value,
+    //     second_value,
+    //     first_derivative,
+    //     second_derivative,
+    //     h_minus_g,
+    // )
+    let index: usize = index as usize;
+    if index == 0 || index >= N {
+        // extrapolate
+        let value = spline_values[index.min(N - 1)];
+        let derivative = spline_derivatives[index.min(N - 1)];
+        let location = spline_locations[index.min(N - 1)];
+        return value + derivative * (coordinate - location);
+    }
+    let index_minus_1 = index - 1;
+    let h_minus_g = spline_values[index] - spline_values[index_minus_1];
+    let t = (coordinate - spline_locations[index_minus_1])
+        / (spline_locations[index] - spline_locations[index_minus_1]);
+    let value_minus_1 = spline_values[index_minus_1];
+    let value = spline_values[index];
+    let derivative_minus_1 = spline_derivatives[index_minus_1];
+    let derivative = spline_derivatives[index];
+    hermite(
+        t,
+        value_minus_1,
+        value,
+        derivative_minus_1,
+        derivative,
+        h_minus_g,
+    )
+}
 
+#[inline(always)]
 pub fn fade(t: Vec3) -> Vec3 {
     Vec3::new(
         t.x * t.x * t.x * (t.x * (t.x * 6.0_f64 - 15.0) + 10.0),
@@ -190,6 +220,7 @@ fn lerp_f64(t: f64, a: f64, b: f64) -> f64 {
 /// Uses the seeded PerlinNoiseSampler when available (initialized via set_perlin_seed).
 /// Falls back to reference permutation table if no sampler is set (for backward compatibility).
 /// Returns a value roughly in [-1, 1].
+#[inline(always)]
 pub fn perlin(p: Vec3, perm_table: &PerlinNoiseSampler) -> f64 {
     sample_perlin(perm_table, p.x, p.y, p.z)
 }
@@ -764,6 +795,7 @@ impl InterpolatedNoiseSampler {
         let mut random_splitter = rng.next_splitter();
 
         let xoroshiro_seed = create_xoroshiro_seed_str("minecraft:terrain");
+        println!("xoroshiro_seed: {:?}", xoroshiro_seed);
         let mut rng = random_splitter.split(xoroshiro_seed.seed_lo, xoroshiro_seed.seed_hi);
         Self::new_boxed(&mut rng)
     }
@@ -919,126 +951,12 @@ pub fn scale_caves(value: f64) -> f64 {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct DecisionTreeNode {
-    pub next_coord: i32,
-    pub next_decision_index: i32,
-    pub location: f32,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct SplineValue {
-    pub value: f32,
-    pub derivative: f32,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct AdvancedHermiteCall {
-    pub coordinate: f32,
-    pub first_location: f32,
-    pub second_location: f32,
-    pub p0_mem: u16,
-    pub p1_mem: u16,
-    pub out_mem: u16,
-}
-
-/*
-let mut rpos3: Vec3;
-    let mut decision_idx_0: i32;
-    let mut second_value_1: f32;
-    let mut first_derivative_2: f32;
-    let mut second_derivative_3: f32;
-    let mut first_value_4: f32;
-    let mut coord_5: f32;
-    let mut coord_6: f32;
-    let mut coordinate_7: f32;
-    let mut coordinates_8: [f32; 2];
-    let mut current_decision_9: DecisionTreeNode;
-    let mut location_10: f32;
-    let mut spline_result_11: f64;
-    rpos3 = ((origin * origin_scale) + (pos3 * position_scale));
-    decision_idx_0 = 1_i32;
-    coord_5 = (input_126219625388992[as_index(pos3, 5_i32, 1_i32) as usize] as f32);
-    coord_6 = (input_126219625377776[as_index(pos3, 5_i32, 1_i32) as usize] as f32);
-    coordinate_7 = coord_5;
-    coordinates_8 = [coord_5, coord_6];
-    {
-        let mut repeat_counter: i32 = 0_i32;
-        while (repeat_counter < 5_i32) {
-            current_decision_9 = minecraft_realism_extreme_mountains_jagged_adjusted_decision_tree_126219625380968[decision_idx_0 as usize];
-            decision_idx_0 = ((current_decision_9.next_decision_index * ((coord_5 < current_decision_9.location) as i32)) + ((decision_idx_0 + 1_i32) * ((coord_5 >= current_decision_9.location) as i32)));
-            location_10 = current_decision_9.location;
-            if ((coord_5 < location_10) && (decision_idx_0 >= 11_i32)) {
-                break;
-            }
-            coordinate_7 = coordinates_8[current_decision_9.next_coord as usize];
-            repeat_counter = (repeat_counter + 1_i32);
+pub fn binary_search<const N: usize>(arr: [f32; N], target: f32) -> i32 {
+    // actually just use linear search since the arrays are small (length 2-11)
+    for i in 0..N as usize {
+        if arr[i] > target {
+            return i as i32;
         }
     }
-    second_value_1 = minecraft_realism_extreme_mountains_jagged_adjusted_values_126219625380912[(decision_idx_0 - 11_i32) as usize].value;
-    first_value_4 = minecraft_realism_extreme_mountains_jagged_adjusted_values_126219625380912[(decision_idx_0 - 12_i32) as usize].value;
-    first_derivative_2 = minecraft_realism_extreme_mountains_jagged_adjusted_values_126219625380912[(decision_idx_0 - 11_i32) as usize].derivative;
-    second_derivative_3 = minecraft_realism_extreme_mountains_jagged_adjusted_values_126219625380912[(decision_idx_0 - 12_i32) as usize].derivative;
-    spline_result_11 = advanced_hermite((first_value_4 as f32), (second_value_1 as f32), (first_derivative_2 as f32), (second_derivative_3 as f32));
-    return spline_result_11;
-*/
-
-// struct BacklogItem {
-//     decision_index: i32,
-//     coordinate: f32,
-//     hermite_idx: u16,
-// }
-
-// pub fn spline_vm_inner(
-//     decision_tree: *const DecisionTreeNode,
-//     spline_values: *const SplineValue,
-//     coords: *const f32,
-//     max_values: i32,
-//     max_decisions: i32,
-// ) -> f32 {
-//     let mut current_decision_index: usize = 1;
-//     let mut coordinate: f32 = unsafe { *coords };
-//     let mut hermite_mem: [f32; 63] = [0.0; 63];
-
-//     let mut hermite_execution_stack: [AdvancedHermiteCall; 63] = [AdvancedHermiteCall {
-//         coordinate: 0.0,
-//         first_location: 0.0,
-//         second_location: 0.0,
-//         idx: 0,
-//     }; 63];
-//     let mut hermite_execution_stack_head: usize = 0;
-//     let mut backlog: [BacklogItem; 63] = [BacklogItem {
-//         decision_index: 0,
-//         coordinate: 0.0,
-//         hermite_idx: 0,
-//     }; 63];
-//     let mut backlog_ringhead: usize = 0;
-//     for i in 0..max_values {
-//         let min_decision = unsafe { *decision_tree.add(current_decision_index - 1) };
-//         let current_decision = unsafe { *decision_tree.add(current_decision_index) };
-//         if coordinate < current_decision.location {
-//             current_decision_index = current_decision.next_decision_index as usize;
-//             let min_one_decision_index = min_decision.next_decision_index as usize;
-//             // add hermite execution to stack
-//             hermite_execution_stack[hermite_execution_stack_head] = AdvancedHermiteCall {
-//                 coordinate,
-//                 first_location: min_decision.location,
-//                 second_location: current_decision.location,
-//                 p0_mem: hermite_mem_head as u16,
-//                 p1_mem: hermite_mem_head as u16 + 2,
-//             };
-//             let val_index_1 = current_decision_index - max_decisions as usize;
-//             let val_index_2 = min_one_decision_index - max_decisions as usize;
-//             if val_index_1 > 0 {
-//                 hermite_mem[hermite_mem_head] = unsafe { (*spline_values.add(val_index_1)).value };
-//                 hermite_mem[hermite_mem_head + 1] = unsafe { (*spline_values.add(val_index_1)).derivative };
-//             } else {
-//             }
-
-//         } else {
-//             current_decision_index + 1
-//         };
-//     }
-
-//     todo!()
-// }
+    return N as i32;
+}

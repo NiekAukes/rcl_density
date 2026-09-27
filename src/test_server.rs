@@ -4,7 +4,7 @@ use std::net::TcpListener;
 use crate::utils::make_permutation_table;
 
 use crate::mathf64::{Pos3, Vec3, as_index};
-use crate::perlin::{create_perlin_noise_sampler, sample_perlin};
+use crate::perlin_noise::{create_perlin_noise_sampler, sample_perlin};
 use crate::utilsf64::{PerlinNoiseSampler, abs, clamp, fade, hermite, max, min};
 use crate::xoroshiro::{
     Xoroshiro128PlusPlusRandom, XoroshiroSeed, create_xoroshiro_seed, create_xoroshiro_seed_str,
@@ -158,7 +158,7 @@ use crate::orchestration::{self as orch, OrchestrationOutput, PermutationTables}
 
 const NUM_OUTPUTS: usize = 1;
 const MIN_Y: i32 = -64;
-const HEIGHT: usize = (320 - MIN_Y) as usize;
+const HEIGHT: usize = (2032 - MIN_Y) as usize;
 const DIMS: usize = 16 * HEIGHT * 16;
 
 /// Run a single-density orchestration by name.

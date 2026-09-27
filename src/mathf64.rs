@@ -6,7 +6,7 @@ pub struct Vec3 {
 }
 
 impl Vec3 {
-    pub fn new(x: f64, y: f64, z: f64) -> Self {
+    pub const fn new(x: f64, y: f64, z: f64) -> Self {
         Self { x, y, z }
     }
 
@@ -83,7 +83,7 @@ pub struct Pos3 {
 
 impl Pos3 {
     #[inline(always)]
-    pub fn new(x: i32, y: i32, z: i32) -> Self {
+    pub const fn new(x: i32, y: i32, z: i32) -> Self {
         Self { x, y, z }
     }
 }
@@ -182,6 +182,11 @@ pub fn as_index(pos: Pos3, size_x: i32, size_y: i32, _size_z: i32) -> usize {
 }
 
 #[inline(always)]
+pub fn index(pos: PositionIterator) -> usize {
+    pos.idx
+}
+
+#[inline(always)]
 pub fn flat_y_zero_index(pos: Pos3, size_x: i32, _size_z: i32) -> usize {
     // the dimensions have been reduced to 2D by flattening the y dimension, so the index is just x + z * size_x
     (pos.z * size_x + pos.x) as usize
@@ -221,6 +226,34 @@ impl Iterator for Iter3D {
         if self.z >= self.mz {
             return None;
         }
+        let current = self.always_next();
+        Some(current)
+    }
+}
+
+pub struct ComplexIter3D {
+    inner: Iter3D,
+}
+
+impl Iterator for ComplexIter3D {
+    type Item = (usize, [Pos3; 4]);
+    #[inline(always)]
+    fn next(&mut self) -> Option<(usize, [Pos3; 4])> {
+        if self.inner.z >= self.inner.mz {
+            return None;
+        }
+
+        // the logic is: simply do 4 iterations of the inner iterator and collect the results into an array
+        let mut results = [Pos3::new(0, 0, 0); 4];
+        for i in 0..4 {
+            results[i] = self.inner.always_next().pos;
+        }
+        Some((self.inner.idx - 4, results))
+    }
+}
+
+impl Iter3D {
+    pub fn always_next(&mut self) -> PositionIterator {
         let current = PositionIterator {
             pos: Pos3::new(self.x, self.y, self.z),
             idx: self.idx,
@@ -235,7 +268,21 @@ impl Iterator for Iter3D {
                 self.z += 1;
             }
         }
-        Some(current)
+        current
+    }
+
+    pub fn chunk(&self) -> ComplexIter3D {
+        ComplexIter3D {
+            inner: Iter3D {
+                idx: self.idx,
+                x: self.x,
+                y: self.y,
+                z: self.z,
+                mx: self.mx,
+                my: self.my,
+                mz: self.mz,
+            },
+        }
     }
 }
 

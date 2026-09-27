@@ -1,0 +1,92 @@
+digraph ShaderWaves {
+    rankdir=LR;
+    node [shape=box];
+    subgraph cluster_wave_0 {
+        label="wave 0";
+        rank=same;
+        <shader_0x7d50ac2cab58_5x1x5_16391_0_16391> [label="minecraft:cave_layer_0\nDimensions: (5 1 5)\nO-Scale: (0.25 0 0.25) \nP-Scale: (1 0 1)"];
+        <shader_0x7d50ac33a428_5x132x5_65565_65565_65565> [label="minecraft:cave_layer_13\nDimensions: (5 132 5)\nO-Scale: (1 1 1) \nP-Scale: (4 16 4)"];
+        <shader_0x7d50ac363a00_5x1x5_39339000_0_39339000> [label="minecraft:jagged_7\nDimensions: (5 1 5)\nO-Scale: (600 0 600) \nP-Scale: (2400 0 2400)"];
+        <shader_0x7d50ac2caa20_5x1x5_65565_0_65565> [label="density_function_ShiftedNoise_5\nDimensions: (5 1 5)\nO-Scale: (1 0 1) \nP-Scale: (4 0 4)"];
+        <shader_0x7d50ac2caa88_5x1x5_65565_0_65565> [label="density_function_ShiftedNoise_3\nDimensions: (5 1 5)\nO-Scale: (1 0 1) \nP-Scale: (4 0 4)"];
+        <shader_0x7d50ac2caaf0_5x1x5_7867_0_7867> [label="minecraft:gravel_1\nDimensions: (5 1 5)\nO-Scale: (0.12 0 0.12) \nP-Scale: (0.48 0 0.48)"];
+        <shader_0x7d50ac33a358_5x132x5_32782_32782_32782> [label="minecraft:cave_layer_14\nDimensions: (5 132 5)\nO-Scale: (0.5 0.5 0.5) \nP-Scale: (2 8 2)"];
+        <shader_0x7d50ac33a4f8_5x132x5_131130_0_131130> [label="minecraft:cave_layer_12\nDimensions: (5 132 5)\nO-Scale: (2 0 2) \nP-Scale: (8 0 8)"];
+        <shader_0x7d50ac33a220_5x132x5_65565_65565_65565> [label="density_function_YClampedGradient_15\nDimensions: (5 132 5)\nO-Scale: (1 1 1) \nP-Scale: (4 16 4)"];
+        <shader_0x7d50ac363860_5x1x5_393_0_393> [label="minecraft:cave_layer_9\nDimensions: (5 1 5)\nO-Scale: (0.006 0 0.006) \nP-Scale: (0.024 0 0.024)"];
+    }
+    subgraph cluster_wave_1 {
+        label="wave 1";
+        rank=same;
+        <shader_0x7d50ac33a3c0_5x132x5_65565_65565_65565> [label="minecraft:caves/barrier/2\nDimensions: (5 132 5)\nO-Scale: (1 1 1) \nP-Scale: (4 16 4)"];
+        <shader_0x7d50ac33a490_5x132x5_65565_65565_65565> [label="density_function_Noise_11\nDimensions: (5 132 5)\nO-Scale: (1 1 1) \nP-Scale: (4 16 4)"];
+        <shader_0x7d50ac3637f8_5x1x5_65565_0_65565> [label="minecraft:determiner/overworld/1\nDimensions: (5 1 5)\nO-Scale: (1 0 1) \nP-Scale: (4 0 4)"];
+        <shader_0x7d50ac363998_5x1x5_65565_0_65565> [label="minecraft:realism/extreme_mountains/jagged/original\nDimensions: (5 1 5)\nO-Scale: (1 0 1) \nP-Scale: (4 0 4)"];
+        <shader_0x7d50ac363a68_5x1x5_65565_0_65565> [label="density_function_Multiply_2\nDimensions: (5 1 5)\nO-Scale: (1 0 1) \nP-Scale: (4 0 4)"];
+        <shader_0x7d50ac33a2f0_5x132x5_65565_65565_65565> [label="minecraft:caves/barrier/1\nDimensions: (5 132 5)\nO-Scale: (1 1 1) \nP-Scale: (4 16 4)"];
+        <shader_0x7d50ac363930_5x1x5_65565_0_65565> [label="minecraft:realism/extreme_mountains/factor/original\nDimensions: (5 1 5)\nO-Scale: (1 0 1) \nP-Scale: (4 0 4)"];
+    }
+    subgraph cluster_wave_2 {
+        label="wave 2";
+        rank=same;
+        <shader_0x7d50ac363790_5x1x5_65565_0_65565> [label="density_function_Abs_8\nDimensions: (5 1 5)\nO-Scale: (1 0 1) \nP-Scale: (4 0 4)"];
+        <shader_0x7d50ac3638c8_5x1x5_65565_0_65565> [label="minecraft:realism/extreme_mountains/slope/height\nDimensions: (5 1 5)\nO-Scale: (1 0 1) \nP-Scale: (4 0 4)"];
+    }
+    subgraph cluster_wave_3 {
+        label="wave 3";
+        rank=same;
+        <shader_0x7d50ac363728_5x1x5_65565_0_65565> [label="minecraft:new_surface/height/unprocessed/unrivered\nDimensions: (5 1 5)\nO-Scale: (1 0 1) \nP-Scale: (4 0 4)"];
+    }
+    subgraph cluster_wave_4 {
+        label="wave 4";
+        rank=same;
+        <shader_0x7d50ac33a5c8_5x1x5_65565_0_65565> [label="minecraft:new_surface/height/unprocessed/rivered\nDimensions: (5 1 5)\nO-Scale: (1 0 1) \nP-Scale: (4 0 4)"];
+    }
+    subgraph cluster_wave_5 {
+        label="wave 5";
+        rank=same;
+        <shader_0x7d50ac33a560_5x132x5_65565_65565_65565> [label="minecraft:new_surface/combined/processed\nDimensions: (5 132 5)\nO-Scale: (1 1 1) \nP-Scale: (4 16 4)"];
+    }
+    subgraph cluster_wave_6 {
+        label="wave 6";
+        rank=same;
+        <shader_0x7d50ac33a288_5x132x5_65565_65565_65565> [label="minecraft:new_combination/unfixed\nDimensions: (5 132 5)\nO-Scale: (1 1 1) \nP-Scale: (4 16 4)"];
+    }
+    subgraph cluster_wave_7 {
+        label="wave 7";
+        rank=same;
+        <shader_0x7d50ac33a1b8_5x132x5_65565_65565_65565> [label="minecraft:new_combination/fixed\nDimensions: (5 132 5)\nO-Scale: (1 1 1) \nP-Scale: (4 16 4)"];
+    }
+    subgraph cluster_wave_8 {
+        label="wave 8";
+        rank=same;
+        <shader_0x7d50ac33a150_16x2096x16_65565_65565_65565> [label="final_density\nDimensions: (16 2096 16)\nO-Scale: (1 1 1) \nP-Scale: (1 1 1)"];
+    }
+    <shader_0x7d50ac33a3c0_5x132x5_65565_65565_65565> -> <shader_0x7d50ac33a428_5x132x5_65565_65565_65565>;
+    <shader_0x7d50ac33a490_5x132x5_65565_65565_65565> -> <shader_0x7d50ac33a4f8_5x132x5_131130_0_131130>;
+    <shader_0x7d50ac3637f8_5x1x5_65565_0_65565> -> <shader_0x7d50ac363860_5x1x5_393_0_393>;
+    <shader_0x7d50ac363998_5x1x5_65565_0_65565> -> <shader_0x7d50ac363a00_5x1x5_39339000_0_39339000>;
+    <shader_0x7d50ac363a68_5x1x5_65565_0_65565> -> <shader_0x7d50ac2caa88_5x1x5_65565_0_65565>;
+    <shader_0x7d50ac363a68_5x1x5_65565_0_65565> -> <shader_0x7d50ac2caaf0_5x1x5_7867_0_7867>;
+    <shader_0x7d50ac363a68_5x1x5_65565_0_65565> -> <shader_0x7d50ac2caa20_5x1x5_65565_0_65565>;
+    <shader_0x7d50ac33a2f0_5x132x5_65565_65565_65565> -> <shader_0x7d50ac33a358_5x132x5_32782_32782_32782>;
+    <shader_0x7d50ac363930_5x1x5_65565_0_65565> -> <shader_0x7d50ac2caaf0_5x1x5_7867_0_7867>;
+    <shader_0x7d50ac363790_5x1x5_65565_0_65565> -> <shader_0x7d50ac3637f8_5x1x5_65565_0_65565>;
+    <shader_0x7d50ac3638c8_5x1x5_65565_0_65565> -> <shader_0x7d50ac2cab58_5x1x5_16391_0_16391> [style=dashed, color=gray];
+    <shader_0x7d50ac3638c8_5x1x5_65565_0_65565> -> <shader_0x7d50ac2caaf0_5x1x5_7867_0_7867> [style=dashed, color=gray];
+    <shader_0x7d50ac3638c8_5x1x5_65565_0_65565> -> <shader_0x7d50ac363a68_5x1x5_65565_0_65565>;
+    <shader_0x7d50ac3638c8_5x1x5_65565_0_65565> -> <shader_0x7d50ac363998_5x1x5_65565_0_65565>;
+    <shader_0x7d50ac3638c8_5x1x5_65565_0_65565> -> <shader_0x7d50ac363930_5x1x5_65565_0_65565>;
+    <shader_0x7d50ac363728_5x1x5_65565_0_65565> -> <shader_0x7d50ac3638c8_5x1x5_65565_0_65565>;
+    <shader_0x7d50ac363728_5x1x5_65565_0_65565> -> <shader_0x7d50ac363790_5x1x5_65565_0_65565>;
+    <shader_0x7d50ac33a5c8_5x1x5_65565_0_65565> -> <shader_0x7d50ac363728_5x1x5_65565_0_65565>;
+    <shader_0x7d50ac33a5c8_5x1x5_65565_0_65565> -> <shader_0x7d50ac363790_5x1x5_65565_0_65565> [style=dashed, color=gray];
+    <shader_0x7d50ac33a560_5x132x5_65565_65565_65565> -> <shader_0x7d50ac33a5c8_5x1x5_65565_0_65565>;
+    <shader_0x7d50ac33a288_5x132x5_65565_65565_65565> -> <shader_0x7d50ac33a560_5x132x5_65565_65565_65565>;
+    <shader_0x7d50ac33a288_5x132x5_65565_65565_65565> -> <shader_0x7d50ac33a490_5x132x5_65565_65565_65565> [style=dashed, color=gray];
+    <shader_0x7d50ac33a288_5x132x5_65565_65565_65565> -> <shader_0x7d50ac33a3c0_5x132x5_65565_65565_65565> [style=dashed, color=gray];
+    <shader_0x7d50ac33a288_5x132x5_65565_65565_65565> -> <shader_0x7d50ac33a2f0_5x132x5_65565_65565_65565> [style=dashed, color=gray];
+    <shader_0x7d50ac33a1b8_5x132x5_65565_65565_65565> -> <shader_0x7d50ac33a288_5x132x5_65565_65565_65565>;
+    <shader_0x7d50ac33a1b8_5x132x5_65565_65565_65565> -> <shader_0x7d50ac33a220_5x132x5_65565_65565_65565> [style=dashed, color=gray];
+    <shader_0x7d50ac33a150_16x2096x16_65565_65565_65565> -> <shader_0x7d50ac33a1b8_5x132x5_65565_65565_65565>;
+}

@@ -1,5 +1,5 @@
 use crate::orchestration::{PermutationTables, make_permutation_tables, orchestration};
-use crate::perlin::{create_perlin_noise_sampler, sample_perlin};
+use crate::perlin_noise::{create_perlin_noise_sampler, sample_perlin};
 use crate::random::Random;
 use crate::{
     math::Vec3,

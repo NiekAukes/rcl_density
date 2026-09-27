@@ -9,17 +9,26 @@ use std::{
 
 use crate::{mathf64::Vec3, utilsf64::set_perlin_seed};
 
-mod density_function;
+// mod density_function;
 //mod gpu_orchestrator;
 pub mod math;
 pub mod mathf64;
-mod orchestration;
-pub mod perlin;
+// mod orchestration;
+pub mod perlin_noise;
 pub mod random;
 mod test_server;
 pub mod utils;
 pub mod utilsf64;
 pub mod xoroshiro;
+pub mod surface_height_estimate;
+
+pub use mathf64::*;
+pub use utilsf64::*;
+
+include!("density.rs");
+
+
+
 
 fn main() {
     let h = Builder::new()
@@ -58,6 +67,7 @@ fn run() {
             .spawn(move || {
                 gdt_cpus::pin_thread_to_core(0).unwrap();
                 run_benchmark(&output);
+                run_surface_height_estimate_benchmark();
             })
             .unwrap();
 
@@ -89,14 +99,20 @@ fn run() {
 
     let handle = builder
         .spawn(|| {
+            run_surface_height_estimate_benchmark();
             let mut rnd = xoroshiro::Xoroshiro128PlusPlusRandom::new(214140, 12411);
             let x = orchestration_seeded(
                 0, //rnd.next_long(),
+                // Vec3 {
+                //     x: rnd.next_int_bound(1000) as f64,
+                //     y: -64.0,
+                //     z: rnd.next_int_bound(1000) as f64,
+                // },
                 Vec3 {
-                    x: rnd.next_int_bound(1000) as f64,
-                    y: -64.0,
-                    z: rnd.next_int_bound(1000) as f64,
-                },
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                }
             );
             let a = x.final_density;
 
@@ -108,6 +124,7 @@ fn run() {
                 "Density chunk computed. \nMean: {:.6}\nMin: {:.6}\nMax: {:.6}",
                 mean, min, max
             );
+
         })
         .unwrap();
 
@@ -194,6 +211,74 @@ fn run_benchmark(output: &str) {
     println!("  p95    : {:.2} ms", p95);
     println!("Saved → {}", output);
 }
+
+fn run_surface_height_estimate_benchmark() {
+    let mut rnd = xoroshiro::Xoroshiro128PlusPlusRandom::new(214140, 12411);
+    let world_seed = rnd.next_long();
+
+    // Initialise permutation tables once for the world seed
+    let perm_tables = set_perlin_seed(world_seed);
+
+    let field = (-260, -160);
+
+    println!(
+        "Benchmarking surface height estimate for {}x{} chunks...",
+        field.1 - field.0,
+        field.1 - field.0
+    );
+
+    struct Record {
+        chunk_x: i32,
+        chunk_z: i32,
+        duration_ms: f64,
+        timestamp_ms: u128,
+    }
+    let mut records: Vec<Record> = Vec::with_capacity(64 * 64);
+
+    for cx in field.0..field.1 {
+        for cz in field.0..field.1 {
+            let t0 = std::time::Instant::now();
+            let x = (cx * 16) as u32;
+            let z = (cz * 16) as u32;
+
+            let column_pos = ((x as u64) << 32) | z as u64;
+            // let surface_height = surface_height_estimate::estimate_surface_height(&perm_tables, column_pos);
+            let mut buffer = [0i32; 16];
+            surface_height_estimate::fill_surface_height_estimates(&perm_tables, cx, cz, &mut buffer);
+
+            let t1 = std::time::Instant::now();
+            let duration_ms = (t1 - t0).as_secs_f64() * 1000.0;
+            let timestamp_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis();
+
+            records.push(Record {
+                chunk_x: cx,
+                chunk_z: cz,
+                duration_ms,
+                timestamp_ms,
+            });
+        }
+    }
+
+    let durations: Vec<f64> = records.iter().map(|r| r.duration_ms).collect();
+    let n = durations.len() as f64;
+    let mean = durations.iter().sum::<f64>() / n;
+    let mut sorted = durations.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median = sorted[sorted.len() / 2];
+    let p95 = sorted[(sorted.len() as f64 * 0.95) as usize];
+
+    println!("Done. {} chunks", records.len());
+    println!("  mean   : {:.2} ms", mean);
+    println!("  median : {:.2} ms", median);
+    println!("  min    : {:.2} ms", sorted[0]);
+    println!("  max    : {:.2} ms", sorted[sorted.len() - 1]);
+    println!("  p95    : {:.2} ms", p95);
+    
+}
+
 
 // fn run_gpu_cpu_benchmark(output: &str) {
 //     println!("=== GPU/CPU Benchmark Tool ===\n");
